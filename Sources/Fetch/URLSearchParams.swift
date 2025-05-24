@@ -43,7 +43,7 @@ public struct URLSearchParams: Sendable, CustomStringConvertible {
 
   private static func parseQuery(_ query: String) -> [(String, String?)] {
     query.split(separator: "&").compactMap { pair -> (String, String?)? in
-      let keyValue = pair.split(separator: "=", maxSplits: 1)
+      let keyValue = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
       guard let key = keyValue.first?.removingPercentEncoding else { return nil }
       let value = keyValue.count > 1 ? keyValue[1].removingPercentEncoding : nil
       return (key, value)
@@ -191,6 +191,10 @@ public struct URLSearchParams: Sendable, CustomStringConvertible {
       }
     }.joined(separator: "&")
   }
+
+  var queryItems: [URLQueryItem] {
+    items.map { URLQueryItem(name: $0.0, value: $0.1) }
+  }
 }
 
 extension CharacterSet {
@@ -208,8 +212,51 @@ extension CharacterSet {
     let generalDelimitersToEncode = ":#[]@"  // does not include "?" or "/" due to RFC 3986 - Section 3.4
     let subDelimitersToEncode = "!$&'()*+,;="
     let encodableDelimiters = CharacterSet(
-      charactersIn: "\(generalDelimitersToEncode)\(subDelimitersToEncode)")
+      charactersIn: "\(generalDelimitersToEncode)\(subDelimitersToEncode)"
+    )
 
     return CharacterSet.urlQueryAllowed.subtracting(encodableDelimiters)
   }()
+}
+
+extension URL {
+  /// The components of the URL.
+  ///
+  /// Example:
+  /// ```swift
+  /// let url = URL(string: "https://example.com/path?foo=1&bar=2")!
+  /// print(url.components.query) // Output: "foo=1&bar=2"
+  /// ```
+  public var components: URLComponents {
+    get {
+      URLComponents(url: self, resolvingAgainstBaseURL: false)!
+    }
+    set {
+      self = newValue.url!
+    }
+  }
+
+  /// The query items of the URL.
+  ///
+  /// Example:
+  /// ```swift
+  /// let url = URL(string: "https://example.com/path?foo=1&bar=2")!
+  /// print(url.queryItems) // Output: [URLQueryItem(name: "foo", value: "1"), URLQueryItem(name: "bar", value: "2")]
+  /// ```
+  public var queryItems: [URLQueryItem] {
+    get { components.queryItems ?? [] }
+    set { components.queryItems = newValue }
+  }
+
+  /// The search parameters of the URL.
+  ///
+  /// Example:
+  /// ```swift
+  /// let url = URL(string: "https://example.com/path?foo=1&bar=2")!
+  /// print(url.searchParams.description) // Output: "foo=1&bar=2"
+  /// ```
+  public var searchParams: URLSearchParams {
+    get { URLSearchParams(self) }
+    set { components.queryItems = newValue.queryItems }
+  }
 }

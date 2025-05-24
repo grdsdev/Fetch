@@ -147,7 +147,9 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
         handler.completion?(.failure(error ?? URLError(.unknown)))
       }
     case let handler as DownloadTaskHandler:
-      if let location = handler.location, let httpResponse = task.response as? HTTPURLResponse, error == nil {
+      if let location = handler.location, let httpResponse = task.response as? HTTPURLResponse,
+        error == nil
+      {
         do {
           #warning("TODO: loading whole file into memory is not ideal, find a better solution")
           let body = Response.Body()
