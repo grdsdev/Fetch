@@ -1,0 +1,111 @@
+import Foundation
+
+public struct Response: Sendable {
+  public let url: URL?
+  public let status: Int
+  public let headers: [String: String]
+  public let body: Body
+
+  /// A type that represents the body of an HTTP response.
+  public final class Body: AsyncSequence, Sendable {
+    public typealias AsyncIterator = AsyncStream<Data>.Iterator
+    public typealias Element = Data
+    public typealias Failure = Never
+
+    let stream: AsyncStream<Data>
+    let continuation: AsyncStream<Data>.Continuation
+
+    package init() {
+      (stream, continuation) = AsyncStream.makeStream()
+    }
+
+    public func makeAsyncIterator() -> AsyncIterator {
+      stream.makeAsyncIterator()
+    }
+
+    /// Collects the response body as a ``Data``.
+    /// - Returns: The response body as ``Data``.
+    func collect() async -> Data {
+      await stream.reduce(into: Data()) { $0 += $1 }
+    }
+
+    func yield(_ data: Data) {
+      continuation.yield(data)
+    }
+
+    func finish() {
+      continuation.finish()
+    }
+  }
+
+  public init(url: URL?, status: Int, headers: [String: String], body: Body) {
+    self.url = url
+    self.status = status
+    self.headers = headers
+    self.body = body
+  }
+
+  /// Returns the response body as a `Data` object.
+  ///
+  /// - Returns: The response body as a `Data` object.
+  /// - Throws: An error if the response body cannot be converted to a `Data` object.
+  public func blob() async -> Data {
+    await body.collect()
+  }
+
+  /// Returns the response body as a `JSON` object.
+  ///
+  /// - Returns: The response body as a `JSON` object.
+  /// - Throws: An error if the response body cannot be converted to a `JSON` object.
+  public func json() async throws -> Any {
+    return try JSONSerialization.jsonObject(with: await blob())
+  }
+
+  /// Returns the response body as a `Decodable` object.
+  ///
+  /// - Returns: The response body as a `Decodable` object.
+  /// - Throws: An error if the response body cannot be converted to a `Decodable` object.
+  public func json<T: Decodable>() async throws -> T {
+    return try JSONDecoder().decode(T.self, from: await blob())
+  }
+
+  /// Returns the response body as a `String` object.
+  ///
+  /// - Returns: The response body as a `String` object.
+  /// - Throws: An error if the response body cannot be converted to a `String` object.
+  public func text() async throws -> String {
+    guard let string = String(data: await blob(), encoding: .utf8) else {
+      throw NSError(
+        domain: "Fetch",
+        code: -1,
+        userInfo: [NSLocalizedDescriptionKey: "Could not decode response as UTF-8 string"]
+      )
+    }
+    return string
+  }
+}
+
+extension Response.Body {
+  public struct Producer {
+    let continuation: AsyncStream<Data>.Continuation
+
+    public func yield(_ data: Data) {
+      continuation.yield(data)
+    }
+
+    public func yield(_ string: String) {
+      let data = Data(string.utf8)
+      continuation.yield(data)
+    }
+
+    public func finish() {
+      continuation.finish()
+    }
+  }
+
+  public convenience init(producer: (Producer) -> Void) {
+    self.init()
+
+    producer(Producer(continuation: continuation))
+  }
+}

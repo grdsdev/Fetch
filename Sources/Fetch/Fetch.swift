@@ -1,151 +1,207 @@
 import Foundation
 
 public struct HTTPMethod: RawRepresentable, Sendable {
-    public static let get = HTTPMethod(rawValue: "GET")
-    public static let post = HTTPMethod(rawValue: "POST")
-    public static let put = HTTPMethod(rawValue: "PUT")
-    public static let delete = HTTPMethod(rawValue: "DELETE")
-    public static let patch = HTTPMethod(rawValue: "PATCH")
-    public static let head = HTTPMethod(rawValue: "HEAD")
-    public static let options = HTTPMethod(rawValue: "OPTIONS")
+  public static let get = HTTPMethod(rawValue: "GET")
+  public static let post = HTTPMethod(rawValue: "POST")
+  public static let put = HTTPMethod(rawValue: "PUT")
+  public static let delete = HTTPMethod(rawValue: "DELETE")
+  public static let patch = HTTPMethod(rawValue: "PATCH")
+  public static let head = HTTPMethod(rawValue: "HEAD")
+  public static let options = HTTPMethod(rawValue: "OPTIONS")
 
-    public init(rawValue: String) {
-        self.rawValue = rawValue
-    }
+  public init(rawValue: String) {
+    self.rawValue = rawValue
+  }
 
-    public var rawValue: String
+  public var rawValue: String
 }
 
 public struct FetchOptions: Sendable {
-    public var method: HTTPMethod
-    public var headers: HTTPHeaders
-    public var body: Data?
-    public var cachePolicy: URLRequest.CachePolicy
-    public var timeoutInterval: TimeInterval
+  public var method: HTTPMethod
+  public var headers: HTTPHeaders
+  public var body: (any Sendable)?
+  public var cachePolicy: URLRequest.CachePolicy
+  public var timeoutInterval: TimeInterval
 
-    public init(
-        method: HTTPMethod = .get,
-        headers: HTTPHeaders = HTTPHeaders(),
-        body: Data? = nil,
-        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
-        timeoutInterval: TimeInterval = 60.0
-    ) {
-        self.method = method
-        self.headers = headers
-        self.body = body
-        self.cachePolicy = cachePolicy
-        self.timeoutInterval = timeoutInterval
-    }
-}
-
-public struct Response: Sendable {
-    public let url: URL?
-    public let status: Int
-    public let headers: [String: String]
-    public let body: any Body
-
-    public typealias Body = AsyncSequence<UInt8, any Error> & Sendable
-
-    public init(url: URL?, status: Int, headers: [String: String], body: any Body) {
-        self.url = url
-        self.status = status
-        self.headers = headers
-        self.body = body
-    }
-
-    /// Returns the response body as a `Data` object.
-    ///
-    /// - Returns: The response body as a `Data` object.
-    /// - Throws: An error if the response body cannot be converted to a `Data` object.
-    public func blob() async throws -> Data {
-        var data = Data()
-        for try await byte in body {
-            data.append(byte)
-        }
-        return data
-    }
-
-    /// Returns the response body as a `JSON` object.
-    ///
-    /// - Returns: The response body as a `JSON` object.
-    /// - Throws: An error if the response body cannot be converted to a `JSON` object.
-    public func json() async throws -> Any {
-        return try JSONSerialization.jsonObject(with: try await blob())
-    }
-
-    /// Returns the response body as a `Decodable` object.
-    ///
-    /// - Returns: The response body as a `Decodable` object.
-    /// - Throws: An error if the response body cannot be converted to a `Decodable` object.
-    public func json<T: Decodable>() async throws -> T {
-        return try JSONDecoder().decode(T.self, from: try await blob())
-    }
-
-    /// Returns the response body as a `String` object.
-    ///
-    /// - Returns: The response body as a `String` object.
-    /// - Throws: An error if the response body cannot be converted to a `String` object.
-    public func text() async throws -> String {
-        guard let string = String(data: try await blob(), encoding: .utf8) else {
-            throw NSError(
-                domain: "Fetch", code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Could not decode response as UTF-8 string"])
-        }
-        return string
-    }
+  public init(
+    method: HTTPMethod = .get,
+    headers: HTTPHeaders = HTTPHeaders(),
+    body: (any Sendable)? = nil,
+    cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
+    timeoutInterval: TimeInterval = 60.0
+  ) {
+    self.method = method
+    self.headers = headers
+    self.body = body
+    self.cachePolicy = cachePolicy
+    self.timeoutInterval = timeoutInterval
+  }
 }
 
 public let fetch = Fetch()
 
 public actor Fetch: Sendable {
-    let session: URLSession
+  /// Configuration options for the Fetch instance.
+  public struct Configuration {
+    /// The `URLSessionConfiguration` to use for network requests.
+    public var sessionConfiguration: URLSessionConfiguration
+    /// An optional `URLSessionDelegate` for advanced session management.
+    public var sessionDelegate: URLSessionDelegate?
+    /// An optional `OperationQueue` for handling delegate calls.
+    public var sessionDelegateQueue: OperationQueue?
 
-    public init(session: URLSession = URLSession.shared) {
-        self.session = session
+    public init(
+      sessionConfiguration: URLSessionConfiguration = .default,
+      sessionDelegate: URLSessionDelegate? = nil,
+      sessionDelegateQueue: OperationQueue? = nil
+    ) {
+      self.sessionConfiguration = sessionConfiguration
+      self.sessionDelegate = sessionDelegate
+      self.sessionDelegateQueue = sessionDelegateQueue
     }
 
-    public func callAsFunction(
-        _ url: URL,
-        options: FetchOptions = FetchOptions()
-    ) async throws -> Response {
-        var request = URLRequest(url: url)
-        request.httpMethod = options.method.rawValue
-        request.allHTTPHeaderFields = options.headers.dictionary
-        request.httpBody = options.body
-        request.cachePolicy = options.cachePolicy
-        request.timeoutInterval = options.timeoutInterval
+    /// The default configuration.
+    public static var `default`: Configuration {
+      Configuration()
+    }
+  }
 
-        let (bytes, response) = try await session.bytes(for: request)
+  /// The `URLSession` used for making network requests.
+  let session: URLSession
+  let dataLoader = DataLoader()
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw NSError(
-                domain: "Fetch", code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Invalid response type"])
-        }
+  /// Initializes a new `Fetch` instance with the given configuration.
+  /// - Parameter configuration: The configuration to use for this Fetch instance.
+  ///
+  /// Example:
+  /// ```swift
+  /// let customConfig = Fetch.Configuration(sessionConfiguration: .ephemeral, encoder: JSONEncoder())
+  /// let customFetch = Fetch(configuration: customConfig)
+  /// ```
+  public init(configuration: Configuration = .default) {
+    self.session = URLSession(
+      configuration: configuration.sessionConfiguration,
+      delegate: dataLoader,
+      delegateQueue: configuration.sessionDelegateQueue ?? .serial()
+    )
 
-        let headers = httpResponse.allHeaderFields.reduce(into: [String: String]()) {
-            result, pair in
-            if let key = pair.key as? String, let value = pair.value as? String {
-                result[key] = value
-            }
-        }
+    dataLoader.userSessionDelegate = configuration.sessionDelegate
+  }
+  public func callAsFunction(
+    _ url: URL,
+    options: FetchOptions = FetchOptions()
+  ) async throws -> Response {
+    var urlRequest = URLRequest(url: url)
+    urlRequest.httpMethod = options.method.rawValue
+    urlRequest.allHTTPHeaderFields = options.headers.dictionary
+    urlRequest.cachePolicy = options.cachePolicy
+    urlRequest.timeoutInterval = options.timeoutInterval
 
-        return Response(
-            url: httpResponse.url,
-            status: httpResponse.statusCode,
-            headers: headers,
-            body: bytes
+    if let body = options.body {
+      if let url = body as? URL {
+        let task = session.uploadTask(with: urlRequest, fromFile: url)
+        return try await dataLoader.startUploadTask(
+          task,
+          session: session,
+          delegate: nil
         )
-    }
-
-    public func callAsFunction(
-        _ urlString: String,
-        options: FetchOptions = FetchOptions()
-    ) async throws -> Response {
-        guard let url = URL(string: urlString) else {
-            throw NSError(
-                domain: "Fetch", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
+      } else {
+        if let uploadData = try encode(body, in: &urlRequest) {
+          let task = session.uploadTask(with: urlRequest, from: uploadData)
+          return try await dataLoader.startUploadTask(
+            task,
+            session: session,
+            delegate: nil
+          )
+        } else {
+          fatalError("Malformed request")
         }
-        return try await self(url, options: options)
+      }
+    } else {
+      let task = session.dataTask(with: urlRequest)
+      return try await dataLoader.startDataTask(
+        task,
+        session: session,
+        delegate: nil
+      )
     }
+  }
+
+  public func callAsFunction(
+    _ urlString: String,
+    options: FetchOptions = FetchOptions()
+  ) async throws -> Response {
+    guard let url = URL(string: urlString) else {
+      throw NSError(
+        domain: "Fetch",
+        code: -1,
+        userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]
+      )
+    }
+    return try await self(url, options: options)
+  }
+
+  /// Encodes the request body based on its type.
+  /// - Parameters:
+  ///   - value: The value to encode as the request body.
+  ///   - request: The `URLRequest` to modify with the encoded body.
+  /// - Throws: An error if encoding fails or if the value type is not supported.
+  private func encode(
+    _ value: Any,
+    in request: inout URLRequest
+  ) throws -> Data? {
+    switch value {
+    case let data as Data:
+      if request.value(forHTTPHeaderField: "Content-Type") == nil {
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+      }
+      return data
+
+    case let str as String:
+      if request.value(forHTTPHeaderField: "Content-Type") == nil {
+        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+      }
+      return Data(str.utf8)
+
+    case is URL:
+      fatalError("URL body should be handled before reaching this point.")
+
+    case let formData as FormData:
+      if request.value(forHTTPHeaderField: "Content-Type") == nil {
+        request.setValue(formData.contentType, forHTTPHeaderField: "Content-Type")
+      }
+      return formData.encode()
+
+    case let searchParams as URLSearchParams:
+      if request.value(forHTTPHeaderField: "Content-Type") == nil {
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+      }
+      return searchParams.description.data(using: .utf8)!
+
+    case let value as any Encodable:
+      if request.value(forHTTPHeaderField: "Content-Type") == nil {
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      }
+
+      return try JSONEncoder().encode(value)
+
+    default:
+      if JSONSerialization.isValidJSONObject(value) {
+        if request.value(forHTTPHeaderField: "Content-Type") == nil {
+          request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        return try JSONSerialization.data(withJSONObject: value)
+      } else {
+        fatalError("Unsupported body type: \(type(of: value))")
+      }
+    }
+  }
+}
+
+extension OperationQueue {
+  static func serial() -> OperationQueue {
+    let queue = OperationQueue()
+    queue.maxConcurrentOperationCount = 1
+    return queue
+  }
 }
