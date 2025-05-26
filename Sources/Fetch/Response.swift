@@ -23,10 +23,18 @@ public struct Response: Sendable {
       stream.makeAsyncIterator()
     }
 
+    private let _data: Mutex<Data?> = Mutex(nil)
+
     /// Collects the response body as a ``Data``.
     /// - Returns: The response body as ``Data``.
     func collect() async -> Data {
-      await stream.reduce(into: Data()) { $0 += $1 }
+      if let data = _data.withLock({ $0 }) {
+        return data
+      }
+
+      let data = await stream.reduce(into: Data()) { $0 += $1 }
+      _data.withLock { $0 = data }
+      return data
     }
 
     func yield(_ data: Data) {
