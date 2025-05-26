@@ -6,7 +6,7 @@ public struct HTTPHeaders: Sendable {
     headers
   }
 
-  private nonisolated(unsafe) static var lowercasedKeysToCanonicalKeys: [String: String] = [:]
+  private static let lowercasedKeysToCanonicalKeys: Mutex<[String: String]> = Mutex([:])
 
   public init(_ dictionary: [String: String] = [:]) {
     self.headers = dictionary.reduce(into: [String: String]()) {
@@ -23,7 +23,7 @@ public struct HTTPHeaders: Sendable {
 
   private static func _canonicalize(key: String) -> String {
     let lowercasedKey = key.lowercased()
-    if let canonicalKey = lowercasedKeysToCanonicalKeys[lowercasedKey] {
+    if let canonicalKey = lowercasedKeysToCanonicalKeys.withLock({ $0[lowercasedKey] }) {
       return canonicalKey
     }
 
@@ -31,7 +31,7 @@ public struct HTTPHeaders: Sendable {
       .map { $0.capitalized }
       .joined(separator: "-")
 
-    lowercasedKeysToCanonicalKeys[lowercasedKey] = canonicalKey
+    lowercasedKeysToCanonicalKeys.withLock { $0[lowercasedKey] = canonicalKey }
     return canonicalKey
   }
 }
