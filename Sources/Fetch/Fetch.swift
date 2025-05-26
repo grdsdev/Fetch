@@ -16,11 +16,17 @@ public struct HTTPMethod: RawRepresentable, Sendable {
   public var rawValue: String
 }
 
+/// Options for the Fetch API.
 public struct FetchOptions: Sendable {
+  /// The HTTP method to use for the request.
   public var method: HTTPMethod
+  /// The headers to include in the request.
   public var headers: HTTPHeaders
+  /// The body of the request.
   public var body: (any Sendable)?
+  /// The cache policy to use for the request.
   public var cachePolicy: URLRequest.CachePolicy
+  /// The timeout interval for the request.
   public var timeoutInterval: TimeInterval
 
   public init(
@@ -38,8 +44,10 @@ public struct FetchOptions: Sendable {
   }
 }
 
+/// The default Fetch instance.
 public let fetch = Fetch()
 
+/// The Fetch API.
 public actor Fetch: Sendable {
   /// Configuration options for the Fetch instance.
   public struct Configuration {
