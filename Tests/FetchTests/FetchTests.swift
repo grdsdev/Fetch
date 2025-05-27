@@ -13,7 +13,8 @@ struct FetchTests {
     #expect(json["id"] as? Int == 1)
     #expect(
       json["title"] as? String
-        == "sunt aut facere repellat provident occaecati excepturi optio reprehenderit")
+        == "sunt aut facere repellat provident occaecati excepturi optio reprehenderit"
+    )
     #expect(
       json["body"] as? String
         == "quia et suscipit\nsuscipit recusandae consequuntur expedita et cum\nreprehenderit molestiae ut ut quas totam\nnostrum rerum est autem sunt rem eveniet architecto"
@@ -36,7 +37,8 @@ struct FetchTests {
     #expect(post.id == 1)
     #expect(
       post.title
-        == "sunt aut facere repellat provident occaecati excepturi optio reprehenderit")
+        == "sunt aut facere repellat provident occaecati excepturi optio reprehenderit"
+    )
     #expect(
       post.body
         == "quia et suscipit\nsuscipit recusandae consequuntur expedita et cum\nreprehenderit molestiae ut ut quas totam\nnostrum rerum est autem sunt rem eveniet architecto"
@@ -50,5 +52,14 @@ struct FetchTests {
 
     let text = try await response.text()
     #expect(text.contains("quia et suscipit"))
+  }
+
+  @Test func downloadFile() async throws {
+    let response = try await fetch(
+      "https://github.com/grdsdev/Fetch/archive/refs/heads/main.zip",
+      options: FetchOptions(download: true)
+    )
+    #expect(response.status == 200)
+    #expect(await response.blob().count > 0)
   }
 }

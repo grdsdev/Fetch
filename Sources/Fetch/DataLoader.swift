@@ -8,12 +8,15 @@ import Foundation
   import FoundationNetworking
 #endif
 
+/// The size of each chunk when downloading files. Defaults to 4096 bytes (4 KB).
+public let downloadChunkSize = 4096
+
 // A simple URLSession wrapper adding async/await APIs compatible with older platforms.
 final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDelegate, @unchecked
   Sendable
 {
   private let handlers = TaskHandlersDictionary()
-
+  
   var userSessionDelegate: URLSessionDelegate? {
     didSet {
       userTaskDelegate = userSessionDelegate as? URLSessionTaskDelegate
@@ -151,10 +154,21 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
         error == nil
       {
         do {
-          #warning("TODO: loading whole file into memory is not ideal, find a better solution")
-          let body = Response.Body()
-          body.yield(try Data(contentsOf: location))
-          body.finish()
+          let fileHandle = try FileHandle(forReadingFrom: location)
+          let body = Response.Body { producer in
+            defer {
+              producer.finish()
+              try? fileHandle.close()
+            }
+
+            repeat {
+              let data = fileHandle.readData(ofLength: downloadChunkSize)
+              if data.isEmpty {
+                break
+              }
+              producer.yield(data)
+            } while true
+          }
 
           let response = Response(
             url: httpResponse.url,

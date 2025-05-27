@@ -28,19 +28,28 @@ public struct FetchOptions: Sendable {
   public var cachePolicy: URLRequest.CachePolicy
   /// The timeout interval for the request.
   public var timeoutInterval: TimeInterval
+  /// Whether to download the response body.
+  ///
+  /// When `download` is `true`, the response is downloaded to a temporary file using `URLSessionDownloadTask`,
+  /// and the response body is streamed by chunks of ``downloadChunkSize``.
+  ///
+  /// - Note: Download requests should not have a body.
+  public var download: Bool
 
   public init(
     method: HTTPMethod = .get,
     headers: HTTPHeaders = HTTPHeaders(),
     body: (any Sendable)? = nil,
     cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
-    timeoutInterval: TimeInterval = 60.0
+    timeoutInterval: TimeInterval = 60.0,
+    download: Bool = false
   ) {
     self.method = method
     self.headers = headers
     self.body = body
     self.cachePolicy = cachePolicy
     self.timeoutInterval = timeoutInterval
+    self.download = download
   }
 }
 
@@ -105,6 +114,13 @@ public actor Fetch: Sendable {
     urlRequest.cachePolicy = options.cachePolicy
     urlRequest.timeoutInterval = options.timeoutInterval
 
+    if options.download {
+      assert(
+        options.body == nil,
+        "Download requests should not have a body."
+      )
+    }
+
     if let body = options.body {
       if let url = body as? URL {
         let task = session.uploadTask(with: urlRequest, fromFile: url)
@@ -114,18 +130,24 @@ public actor Fetch: Sendable {
           delegate: nil
         )
       } else {
-        if let uploadData = try encode(body, in: &urlRequest) {
-          let task = session.uploadTask(with: urlRequest, from: uploadData)
-          return try await dataLoader.startUploadTask(
-            task,
-            session: session,
-            delegate: nil
-          )
-        } else {
-          fatalError("Malformed request")
-        }
+        let uploadData = try encode(body, in: &urlRequest)
+        let task = session.uploadTask(with: urlRequest, from: uploadData)
+        return try await dataLoader.startUploadTask(
+          task,
+          session: session,
+          delegate: nil
+        )
       }
+    } else if options.download {
+      // For download requests, we use a download task.
+      let task = session.downloadTask(with: urlRequest)
+      return try await dataLoader.startDownloadTask(
+        task,
+        session: session,
+        delegate: nil
+      )
     } else {
+      // If not a download, nor we have a body, we use a data task.
       let task = session.dataTask(with: urlRequest)
       return try await dataLoader.startDataTask(
         task,
@@ -157,7 +179,7 @@ public actor Fetch: Sendable {
   private func encode(
     _ value: Any,
     in request: inout URLRequest
-  ) throws -> Data? {
+  ) throws -> Data {
     switch value {
     case let data as Data:
       if request.value(forHTTPHeaderField: "Content-Type") == nil {
