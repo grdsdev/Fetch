@@ -32,14 +32,14 @@ struct URLSearchParamsTests {
   @Test
   func append() {
     var params = URLSearchParams("foo=1")
-    params.append("bar", "2")
+    params.append("bar", value: "2")
     #expect(params.description == "foo=1&bar=2")
   }
 
   @Test
   func appendEmptyName() {
     var params = URLSearchParams("foo=1")
-    params.append("", "2")
+    params.append("", value: "2")
     #expect(params.description == "foo=1")
   }
 
@@ -137,7 +137,7 @@ struct URLSearchParamsTests {
   func urlComponents() {
     var url = URL(string: "https://example.com/path?foo=1&bar=2")!
     var params = url.searchParams
-    params.append("baz", "3")
+    params.append("baz", value: "3")
     url.searchParams = params
     #expect(url.absoluteString == "https://example.com/path?foo=1&bar=2&baz=3")
   }

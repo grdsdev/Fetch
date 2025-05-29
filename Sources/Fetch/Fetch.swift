@@ -1,5 +1,9 @@
 import Foundation
 
+#if canImport(FoundationNetworking)
+  import FoundationNetworking
+#endif
+
 public struct HTTPMethod: RawRepresentable, Sendable {
   public static let get = HTTPMethod(rawValue: "GET")
   public static let post = HTTPMethod(rawValue: "POST")

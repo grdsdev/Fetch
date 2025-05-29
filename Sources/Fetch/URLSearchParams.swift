@@ -1,5 +1,9 @@
 import Foundation
 
+#if canImport(FoundationNetworking)
+  import FoundationNetworking
+#endif
+
 /// A structure for parsing, manipulating, and serializing URL search parameters.
 /// It provides methods to work with query string parameters in a convenient way.
 public struct URLSearchParams: Sendable, CustomStringConvertible {
@@ -65,7 +69,7 @@ public struct URLSearchParams: Sendable, CustomStringConvertible {
   /// params.append("bar", "2")
   /// print(params.description) // Output: "foo=1&bar=2"
   /// ```
-  public mutating func append(_ name: String, _ value: String) {
+  public mutating func append(_ name: String, value: String) {
     guard !name.isEmpty else { return }
     let encodedName = name.addingPercentEncoding(withAllowedCharacters: ._urlQueryAllowed) ?? name
     let encodedValue = value.addingPercentEncoding(withAllowedCharacters: ._urlQueryAllowed)
