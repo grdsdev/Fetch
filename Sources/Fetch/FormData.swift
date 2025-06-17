@@ -54,6 +54,8 @@ public struct FormData: Sendable {
       data = try Data(contentsOf: url)
     case let searchParams as URLSearchParams:
       data = Data(searchParams.description.utf8)
+    case let value as any EncodableWithEncoder:
+      data = try value.encode()
     case let value as any Encodable:
       data = try JSONEncoder().encode(value)
     default:

@@ -61,7 +61,7 @@ public struct FetchOptions: Sendable {
 public let fetch = Fetch()
 
 /// The Fetch API.
-public actor Fetch: Sendable {
+public actor Fetch {
   /// Configuration options for the Fetch instance.
   public struct Configuration {
     /// The `URLSessionConfiguration` to use for network requests.
@@ -211,6 +211,12 @@ public actor Fetch: Sendable {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
       }
       return searchParams.description.data(using: .utf8)!
+
+    case let value as any EncodableWithEncoder:
+      if request.value(forHTTPHeaderField: "Content-Type") == nil {
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      }
+      return try value.encode()
 
     case let value as any Encodable:
       if request.value(forHTTPHeaderField: "Content-Type") == nil {

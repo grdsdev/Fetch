@@ -81,6 +81,14 @@ public struct Response: Sendable {
     return try decoder.decode(T.self, from: await blob())
   }
 
+  /// Returns the response body as a `DecodableWithDecoder` object.
+  ///
+  /// - Returns: The response body as a `DecodableWithDecoder` object.
+  /// - Throws: An error if the response body cannot be converted to a `DecodableWithDecoder` object.
+  public func json<T: DecodableWithDecoder>() async throws -> T {
+    return try T.decode(from: await blob())
+  }
+
   /// Returns the response body as a `String` object.
   ///
   /// - Returns: The response body as a `String` object.
@@ -117,6 +125,11 @@ extension Response.Body {
 
     public func yield<T: Encodable>(_ value: T, encoder: JSONEncoder = JSONEncoder()) throws {
       let data = try encoder.encode(value)
+      yield(data)
+    }
+
+    public func yield<T: EncodableWithEncoder>(_ value: T) throws {
+      let data = try value.encode()
       yield(data)
     }
 
