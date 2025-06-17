@@ -30,9 +30,8 @@ struct ResponseTests {
       producer.yield("test")
       producer.finish()
     }
-    let headers = ["Content-Type": "text/plain"]
 
-    let response = Response(url: url, status: 200, headers: headers, body: body)
+    let response = Response(url: url, status: 200, headers: ["Content-Type": "text/plain"], body: body)
 
     #expect(response.url == url)
     #expect(response.status == 200)
