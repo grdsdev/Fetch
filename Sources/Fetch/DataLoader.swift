@@ -16,7 +16,7 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
   Sendable
 {
   private let handlers = TaskHandlersDictionary()
-  
+
   var userSessionDelegate: URLSessionDelegate? {
     didSet {
       userTaskDelegate = userSessionDelegate as? URLSessionTaskDelegate
@@ -142,7 +142,7 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
         let response = Response(
           url: httpResponse.url,
           status: httpResponse.statusCode,
-          headers: httpResponse.allHeaderFields as? [String: String] ?? [:],
+          headers: HTTPHeaders(httpResponse.allHeaderFields as? [String: String] ?? [:]),
           body: body
         )
         handler.completion?(.success(response))
@@ -173,7 +173,7 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
           let response = Response(
             url: httpResponse.url,
             status: httpResponse.statusCode,
-            headers: httpResponse.allHeaderFields as? [String: String] ?? [:],
+            headers: HTTPHeaders(httpResponse.allHeaderFields as? [String: String] ?? [:]),
             body: body
           )
           handler.completion?(.success(response))

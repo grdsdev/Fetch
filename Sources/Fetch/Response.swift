@@ -7,7 +7,7 @@ import Foundation
 public struct Response: Sendable {
   public let url: URL?
   public let status: Int
-  public let headers: [String: String]
+  public let headers: HTTPHeaders
   public let body: Body
 
   /// A type that represents the body of an HTTP response.
@@ -50,7 +50,7 @@ public struct Response: Sendable {
     }
   }
 
-  public init(url: URL?, status: Int, headers: [String: String], body: Body) {
+  public init(url: URL?, status: Int, headers: HTTPHeaders, body: Body) {
     self.url = url
     self.status = status
     self.headers = headers
