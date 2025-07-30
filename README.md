@@ -10,7 +10,7 @@ A modern, Swift-native HTTP client library that provides a clean and intuitive A
 - 📤 **Flexible Request Options**: Customizable headers, methods, and body content
 - 📥 **Streaming Support**: Efficient handling of large responses with streaming
 - 🔄 **Download Support**: Built-in support for file downloads
-- 🎯 **Cross-Platform**: Works on iOS, macOS, tvOS, and watchOS
+- 🎯 **Cross-Platform**: Works on iOS, macOS, macCatalyst, tvOS, and watchOS
 - 🔍 **URL Parameter Handling**: Built-in support for URL search parameters
 - 📝 **Form Data Support**: Easy handling of multipart/form-data requests
 
@@ -18,9 +18,10 @@ A modern, Swift-native HTTP client library that provides a clean and intuitive A
 
 - iOS 13.0+
 - macOS 10.15+
+- macCatalyst 13.0+
 - tvOS 13.0+
 - watchOS 6.0+
-- Swift 6.0+
+- Swift 5.10+ (Swift 6.0+ recommended)
 
 ## Installation
 

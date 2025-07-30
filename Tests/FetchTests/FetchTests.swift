@@ -56,9 +56,10 @@ struct FetchTests {
 
   @Test func downloadFile() async throws {
     let response = try await fetch(
-      "https://github.com/grdsdev/Fetch/archive/refs/heads/main.zip",
-      options: FetchOptions(download: true)
-    )
+      "https://github.com/grdsdev/Fetch/archive/refs/heads/main.zip"
+    ) {
+      $0.download = true
+    }
     #expect(response.status == 200)
     #expect(await response.blob().count > 0)
   }

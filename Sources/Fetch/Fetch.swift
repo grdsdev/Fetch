@@ -4,11 +4,29 @@ import Foundation
   import FoundationNetworking
 #endif
 
+public protocol Fetch: Sendable {
+  func callAsFunction(_ url: URL, options builder: (inout FetchOptions) -> Void) async throws
+    -> Response
+}
+extension Fetch {
+  public func callAsFunction(_ urlString: String, options builder: (inout FetchOptions) -> Void)
+    async throws -> Response
+  {
+    try await self(URL(string: urlString)!, options: builder)
+  }
+  public func callAsFunction(_ url: URL) async throws -> Response {
+    try await self(url, options: { _ in })
+  }
+  public func callAsFunction(_ urlString: String) async throws -> Response {
+    try await self(urlString, options: { _ in })
+  }
+}
+
 /// A type-safe representation of HTTP methods.
-/// 
+///
 /// This structure provides static constants for common HTTP methods
 /// while allowing custom methods through the raw value initializer.
-/// 
+///
 /// Example:
 /// ```swift
 /// let options = FetchOptions(method: .post)
@@ -41,10 +59,10 @@ public struct HTTPMethod: RawRepresentable, Sendable {
 }
 
 /// Configuration options for HTTP requests made with the Fetch API.
-/// 
+///
 /// Use `FetchOptions` to customize various aspects of your HTTP request,
 /// including the method, headers, body, caching policy, and timeout.
-/// 
+///
 /// Example:
 /// ```swift
 /// let options = FetchOptions(
@@ -61,7 +79,7 @@ public struct FetchOptions: Sendable {
   /// The headers to include in the request (default: empty)
   public var headers: HTTPHeaders
   /// The body content of the request.
-  /// 
+  ///
   /// Supported types include:
   /// - `Data` - Raw binary data
   /// - `String` - Text content
@@ -92,7 +110,7 @@ public struct FetchOptions: Sendable {
   public var download: Bool
 
   /// Creates a new `FetchOptions` instance with the specified parameters.
-  /// 
+  ///
   /// - Parameters:
   ///   - method: The HTTP method to use (default: .get)
   ///   - headers: The headers to include (default: empty)
@@ -118,39 +136,39 @@ public struct FetchOptions: Sendable {
 }
 
 /// The default Fetch instance for making HTTP requests.
-/// 
+///
 /// This is a convenient global instance that you can use directly
 /// without creating your own Fetch instance.
-/// 
+///
 /// Example:
 /// ```swift
 /// let response = try await fetch("https://api.example.com/data")
 /// let json = try await response.json()
 /// ```
-public let fetch = Fetch()
+public let fetch: any Fetch = FetchClient()
 
 /// A modern, async HTTP client for making network requests.
-/// 
+///
 /// The `Fetch` actor provides a clean, type-safe API for making HTTP requests
 /// with support for modern Swift concurrency features. It handles various
 /// request types including data tasks, file uploads, and downloads.
-/// 
+///
 /// Example:
 /// ```swift
 /// // Using the global instance
 /// let response = try await fetch("https://api.example.com/users")
 /// let users: [User] = try await response.json()
-/// 
+///
 /// // Creating a custom instance
 /// let customFetch = Fetch(configuration: .init(sessionConfiguration: .ephemeral))
 /// let response = try await customFetch("https://api.example.com/data")
 /// ```
-public actor Fetch {
+public actor FetchClient: Fetch {
   /// Configuration options for customizing a Fetch instance.
-  /// 
+  ///
   /// Use `Configuration` to customize the underlying `URLSession` behavior,
   /// set custom delegates, or configure the operation queue for delegate callbacks.
-  /// 
+  ///
   /// Example:
   /// ```swift
   /// let config = Fetch.Configuration(
@@ -169,7 +187,7 @@ public actor Fetch {
     public var sessionDelegateQueue: OperationQueue?
 
     /// Creates a new configuration with the specified parameters.
-    /// 
+    ///
     /// - Parameters:
     ///   - sessionConfiguration: The session configuration (default: .default)
     ///   - sessionDelegate: Optional session delegate for custom handling
@@ -196,7 +214,7 @@ public actor Fetch {
   let dataLoader = DataLoader()
 
   /// Initializes a new `Fetch` instance with the given configuration.
-  /// 
+  ///
   /// - Parameter configuration: The configuration to use for this Fetch instance (default: .default)
   ///
   /// Example:
@@ -217,16 +235,16 @@ public actor Fetch {
     dataLoader.userSessionDelegate = configuration.sessionDelegate
   }
   /// Makes an HTTP request to the specified URL with the given options.
-  /// 
+  ///
   /// This method allows the Fetch instance to be called as a function,
   /// providing a clean and intuitive API for making requests.
-  /// 
+  ///
   /// - Parameters:
   ///   - url: The URL to make the request to
   ///   - options: The request options (default: GET request with no body)
   /// - Returns: A `Response` object containing the server's response
   /// - Throws: An error if the request fails or cannot be completed
-  /// 
+  ///
   /// Example:
   /// ```swift
   /// let response = try await fetch(url)
@@ -234,9 +252,11 @@ public actor Fetch {
   /// ```
   public func callAsFunction(
     _ url: URL,
-    options: FetchOptions = FetchOptions()
+    options builder: (inout FetchOptions) -> Void = { _ in }
   ) async throws -> Response {
     var urlRequest = URLRequest(url: url)
+    var options = FetchOptions()
+    builder(&options)
     urlRequest.httpMethod = options.method.rawValue
     urlRequest.allHTTPHeaderFields = options.headers.dictionary
     urlRequest.cachePolicy = options.cachePolicy
@@ -286,16 +306,16 @@ public actor Fetch {
   }
 
   /// Makes an HTTP request to the specified URL string with the given options.
-  /// 
+  ///
   /// This convenience method allows making requests with string URLs,
   /// automatically validating and converting them to URL objects.
-  /// 
+  ///
   /// - Parameters:
   ///   - urlString: The URL string to make the request to
   ///   - options: The request options (default: GET request with no body)
   /// - Returns: A `Response` object containing the server's response
   /// - Throws: An error if the URL is invalid or the request fails
-  /// 
+  ///
   /// Example:
   /// ```swift
   /// let response = try await fetch("https://api.example.com/users")
@@ -303,7 +323,7 @@ public actor Fetch {
   /// ```
   public func callAsFunction(
     _ urlString: String,
-    options: FetchOptions = FetchOptions()
+    options builder: (inout FetchOptions) -> Void = { _ in }
   ) async throws -> Response {
     guard let url = URL(string: urlString) else {
       throw NSError(
@@ -312,11 +332,11 @@ public actor Fetch {
         userInfo: [NSLocalizedDescriptionKey: "Invalid URL: \(urlString)"]
       )
     }
-    return try await self(url, options: options)
+    return try await self(url, options: builder)
   }
 
   /// Encodes the request body based on its type and sets appropriate Content-Type headers.
-  /// 
+  ///
   /// This method automatically determines the appropriate encoding and Content-Type header
   /// based on the type of the provided value. Supported types include:
   /// - `Data`: Used as-is with `application/octet-stream`
@@ -326,7 +346,7 @@ public actor Fetch {
   /// - `EncodableWithEncoder`: Custom encoding protocol
   /// - `Encodable`: JSON encoding with `application/json`
   /// - Dictionary/Array: JSON serialization
-  /// 
+  ///
   /// - Parameters:
   ///   - value: The value to encode as the request body
   ///   - request: The `URLRequest` to modify with the encoded body and headers
