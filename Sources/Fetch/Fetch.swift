@@ -4,19 +4,62 @@ import Foundation
   import FoundationNetworking
 #endif
 
+/// A protocol for making HTTP requests with a clean, modern API.
+///
+/// The `Fetch` protocol defines the interface for HTTP clients that support
+/// Swift's callable syntax and builder pattern for configuring requests.
+///
+/// Example:
+/// ```swift
+/// let response = try await fetch("https://api.example.com/data")
+/// let json = try await response.json()
+///
+/// // With configuration
+/// let response = try await fetch("https://api.example.com/users") {
+///   $0.method = .post
+///   $0.headers["Authorization"] = "Bearer token"
+///   $0.body = ["name": "John"]
+/// }
+/// ```
 public protocol Fetch: Sendable {
+  /// Makes an HTTP request to the specified URL with configurable options.
+  ///
+  /// - Parameters:
+  ///   - url: The URL to make the request to
+  ///   - builder: A closure that configures the request options
+  /// - Returns: A `Response` object containing the server's response
+  /// - Throws: An error if the request fails or cannot be completed
   func callAsFunction(_ url: URL, options builder: (inout FetchOptions) -> Void) async throws
     -> Response
 }
 extension Fetch {
+  /// Makes an HTTP request to the specified URL string with configurable options.
+  ///
+  /// - Parameters:
+  ///   - urlString: The URL string to make the request to
+  ///   - builder: A closure that configures the request options
+  /// - Returns: A `Response` object containing the server's response
+  /// - Throws: An error if the URL is invalid or the request fails
   public func callAsFunction(_ urlString: String, options builder: (inout FetchOptions) -> Void)
     async throws -> Response
   {
     try await self(URL(string: urlString)!, options: builder)
   }
+  
+  /// Makes a simple GET request to the specified URL.
+  ///
+  /// - Parameter url: The URL to make the request to
+  /// - Returns: A `Response` object containing the server's response
+  /// - Throws: An error if the request fails or cannot be completed
   public func callAsFunction(_ url: URL) async throws -> Response {
     try await self(url, options: { _ in })
   }
+  
+  /// Makes a simple GET request to the specified URL string.
+  ///
+  /// - Parameter urlString: The URL string to make the request to
+  /// - Returns: A `Response` object containing the server's response
+  /// - Throws: An error if the URL is invalid or the request fails
   public func callAsFunction(_ urlString: String) async throws -> Response {
     try await self(urlString, options: { _ in })
   }
@@ -29,8 +72,16 @@ extension Fetch {
 ///
 /// Example:
 /// ```swift
-/// let options = FetchOptions(method: .post)
+/// // Using predefined methods
+/// let response = try await fetch(url) {
+///   $0.method = .post
+/// }
+///
+/// // Using custom method
 /// let customMethod = HTTPMethod(rawValue: "PATCH")
+/// let response = try await fetch(url) {
+///   $0.method = customMethod
+/// }
 /// ```
 public struct HTTPMethod: RawRepresentable, Sendable {
   /// HTTP GET method - used for retrieving data
@@ -62,16 +113,16 @@ public struct HTTPMethod: RawRepresentable, Sendable {
 ///
 /// Use `FetchOptions` to customize various aspects of your HTTP request,
 /// including the method, headers, body, caching policy, and timeout.
+/// The options are configured using a builder pattern in the fetch call.
 ///
 /// Example:
 /// ```swift
-/// let options = FetchOptions(
-///   method: .post,
-///   headers: ["Authorization": "Bearer token123"],
-///   body: ["key": "value"],
-///   timeoutInterval: 30.0
-/// )
-/// let response = try await fetch("https://api.example.com/data", options: options)
+/// let response = try await fetch("https://api.example.com/data") {
+///   $0.method = .post
+///   $0.headers["Authorization"] = "Bearer token123"
+///   $0.body = ["key": "value"]
+///   $0.timeoutInterval = 30.0
+/// }
 /// ```
 public struct FetchOptions: Sendable {
   /// The HTTP method to use for the request (default: .get)
@@ -149,7 +200,7 @@ public let fetch: any Fetch = FetchClient()
 
 /// A modern, async HTTP client for making network requests.
 ///
-/// The `Fetch` actor provides a clean, type-safe API for making HTTP requests
+/// The `FetchClient` actor provides a clean, type-safe API for making HTTP requests
 /// with support for modern Swift concurrency features. It handles various
 /// request types including data tasks, file uploads, and downloads.
 ///
@@ -159,8 +210,15 @@ public let fetch: any Fetch = FetchClient()
 /// let response = try await fetch("https://api.example.com/users")
 /// let users: [User] = try await response.json()
 ///
+/// // Using with configuration
+/// let response = try await fetch("https://api.example.com/data") {
+///   $0.method = .post
+///   $0.headers["Content-Type"] = "application/json"
+///   $0.body = user
+/// }
+///
 /// // Creating a custom instance
-/// let customFetch = Fetch(configuration: .init(sessionConfiguration: .ephemeral))
+/// let customFetch = FetchClient(configuration: .init(sessionConfiguration: .ephemeral))
 /// let response = try await customFetch("https://api.example.com/data")
 /// ```
 public actor FetchClient: Fetch {
@@ -171,12 +229,12 @@ public actor FetchClient: Fetch {
   ///
   /// Example:
   /// ```swift
-  /// let config = Fetch.Configuration(
+  /// let config = FetchClient.Configuration(
   ///   sessionConfiguration: .ephemeral,
   ///   sessionDelegate: myDelegate,
   ///   sessionDelegateQueue: .main
   /// )
-  /// let fetch = Fetch(configuration: config)
+  /// let customFetch = FetchClient(configuration: config)
   /// ```
   public struct Configuration {
     /// The `URLSessionConfiguration` to use for network requests (default: .default)
@@ -234,21 +292,29 @@ public actor FetchClient: Fetch {
 
     dataLoader.userSessionDelegate = configuration.sessionDelegate
   }
-  /// Makes an HTTP request to the specified URL with the given options.
+  /// Makes an HTTP request to the specified URL with configurable options.
   ///
   /// This method allows the Fetch instance to be called as a function,
-  /// providing a clean and intuitive API for making requests.
+  /// providing a clean and intuitive API for making requests using a builder pattern.
   ///
   /// - Parameters:
   ///   - url: The URL to make the request to
-  ///   - options: The request options (default: GET request with no body)
+  ///   - builder: A closure that configures the request options
   /// - Returns: A `Response` object containing the server's response
   /// - Throws: An error if the request fails or cannot be completed
   ///
   /// Example:
   /// ```swift
+  /// // Simple GET request
   /// let response = try await fetch(url)
   /// let data = await response.blob()
+  ///
+  /// // POST request with JSON body
+  /// let response = try await fetch(url) {
+  ///   $0.method = .post
+  ///   $0.headers["Content-Type"] = "application/json"
+  ///   $0.body = ["name": "John", "age": 30]
+  /// }
   /// ```
   public func callAsFunction(
     _ url: URL,
@@ -305,21 +371,28 @@ public actor FetchClient: Fetch {
     }
   }
 
-  /// Makes an HTTP request to the specified URL string with the given options.
+  /// Makes an HTTP request to the specified URL string with configurable options.
   ///
   /// This convenience method allows making requests with string URLs,
   /// automatically validating and converting them to URL objects.
   ///
   /// - Parameters:
   ///   - urlString: The URL string to make the request to
-  ///   - options: The request options (default: GET request with no body)
+  ///   - builder: A closure that configures the request options
   /// - Returns: A `Response` object containing the server's response
   /// - Throws: An error if the URL is invalid or the request fails
   ///
   /// Example:
   /// ```swift
+  /// // Simple GET request
   /// let response = try await fetch("https://api.example.com/users")
   /// let users: [User] = try await response.json()
+  ///
+  /// // File upload
+  /// let response = try await fetch("https://api.example.com/upload") {
+  ///   $0.method = .post
+  ///   $0.body = fileURL
+  /// }
   /// ```
   public func callAsFunction(
     _ urlString: String,

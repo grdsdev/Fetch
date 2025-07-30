@@ -53,13 +53,10 @@ let data = await response.blob()
 import Fetch
 
 // POST request with JSON body
-let response = try await fetch(
-    "https://api.example.com/data",
-    options: FetchOptions(
-        method: .post,
-        body: ["key": "value"]
-    )
-)
+let response = try await fetch("https://api.example.com/data") {
+    $0.method = .post
+    $0.body = ["key": "value"]
+}
 let json = try await response.json()
 ```
 
@@ -69,10 +66,9 @@ let json = try await response.json()
 import Fetch
 
 // Download a file
-let response = try await fetch(
-    "https://example.com/file.zip",
-    options: FetchOptions(download: true)
-)
+let response = try await fetch("https://example.com/file.zip") {
+    $0.download = true
+}
 let data = await response.blob()
 ```
 
@@ -100,13 +96,10 @@ formData.append("file", fileData, filename: "document.pdf")
 formData.append("description", "My document")
 
 // Upload with form data
-let response = try await fetch(
-    "https://api.example.com/upload",
-    options: FetchOptions(
-        method: .post,
-        body: formData
-    )
-)
+let response = try await fetch("https://api.example.com/upload") {
+    $0.method = .post
+    $0.body = formData
+}
 ```
 
 ### Custom Headers
@@ -115,15 +108,10 @@ let response = try await fetch(
 import Fetch
 
 // Request with custom headers
-let response = try await fetch(
-    "https://api.example.com/data",
-    options: FetchOptions(
-        headers: [
-            "Authorization": "Bearer token123",
-            "Content-Type": "application/json"
-        ]
-    )
-)
+let response = try await fetch("https://api.example.com/data") {
+    $0.headers["Authorization"] = "Bearer token123"
+    $0.headers["Content-Type"] = "application/json"
+}
 ```
 
 ## Advanced Usage
@@ -134,14 +122,21 @@ let response = try await fetch(
 import Fetch
 
 // Create custom Fetch instance with configuration
-let customConfig = Fetch.Configuration(
+let customConfig = FetchClient.Configuration(
     sessionConfiguration: .ephemeral,
     sessionDelegate: customDelegate
 )
-let customFetch = Fetch(configuration: customConfig)
+let customFetch = FetchClient(configuration: customConfig)
 
 // Use custom instance
 let response = try await customFetch("https://api.example.com/data")
+
+// Use with builder pattern
+let response = try await customFetch("https://api.example.com/users") {
+    $0.method = .post
+    $0.headers["Authorization"] = "Bearer token"
+    $0.body = newUser
+}
 ```
 
 ### Response Handling
@@ -155,6 +150,30 @@ let response = try await fetch("https://api.example.com/data")
 let json: MyModel = try await response.json(decoder: customDecoder)
 let text = try await response.text()
 let data = await response.blob()
+```
+
+### Advanced Builder Pattern Usage
+
+```swift
+import Fetch
+
+// Complex request with multiple configurations
+let response = try await fetch("https://api.example.com/complex") {
+    $0.method = .put
+    $0.headers["Authorization"] = "Bearer \(authToken)"
+    $0.headers["Content-Type"] = "application/json"
+    $0.headers["X-API-Version"] = "2.0"
+    $0.body = complexData
+    $0.timeoutInterval = 60.0
+    $0.cachePolicy = .reloadIgnoringLocalCacheData
+}
+
+// File upload with metadata
+let response = try await fetch("https://api.example.com/files") {
+    $0.method = .post
+    $0.headers["Authorization"] = "Bearer \(token)"
+    $0.body = fileURL  // Automatically handles file upload
+}
 ```
 
 ## License
