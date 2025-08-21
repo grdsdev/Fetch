@@ -650,19 +650,18 @@ extension Optional: OptionalDecoding {}
 /// called outside of the session's delegate queue, which means that the access
 /// needs to be synchronized.
 private final class TaskHandlersDictionary {
-  private let lock = NSLock()
-  private var handlers = [URLSessionTask: TaskHandler]()
+  private let handlers = Mutex([URLSessionTask: TaskHandler]())
 
   subscript(task: URLSessionTask) -> TaskHandler? {
     get {
-      lock.lock()
-      defer { lock.unlock() }
-      return handlers[task]
+      handlers.withLock {
+        $0[task]
+      }
     }
     set {
-      lock.lock()
-      defer { lock.unlock() }
-      handlers[task] = newValue
+      handlers.withLock {
+        $0[task] = newValue
+      }
     }
   }
 }
