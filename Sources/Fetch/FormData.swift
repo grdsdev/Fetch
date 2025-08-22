@@ -151,7 +151,7 @@ public final class FormData: Sendable {
   /// ```swift
   /// var formData = FormData()
   /// formData.append("field", "value")
-  /// 
+  ///
   /// do {
   ///   let encodedData = try formData.encode()
   /// } catch {
@@ -527,7 +527,9 @@ private class FormDataDecoder {
   }
 
   private func extractBoundary(from contentType: String) throws -> String {
-    guard let boundary = contentType.components(separatedBy: "boundary=").last else {
+    guard contentType.contains("boundary="),
+          let boundary = contentType.components(separatedBy: "boundary=").last,
+          !boundary.isEmpty else {
       throw FormDataError.missingBoundary
     }
     return boundary
