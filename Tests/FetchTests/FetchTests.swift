@@ -63,4 +63,31 @@ struct FetchTests {
     #expect(response.status == 200)
     #expect(await response.blob().count > 0)
   }
+
+  @Test func requestWithFormData() async throws {
+    let formData = FormData()
+    formData.append("username", "john_doe")
+    // formData.append("avatar", avatarURL)
+    // formData.append(
+    //   "data", binaryData, filename: "file.bin", contentType: "application/octet-stream")
+    formData.append("metadata", ["key": "value"])
+
+    let response = try await fetch("https://echo.free.beeceptor.com") {
+      $0.method = .post
+      $0.body = formData
+    }
+
+    struct Payload: Decodable {
+      let parsedBody: ParsedBody
+
+      struct ParsedBody: Decodable {
+        let textFields: [String: String]
+      }
+    }
+
+    let payload = try await response.json() as Payload
+    #expect(response.status == 200)
+    #expect(payload.parsedBody.textFields["username"] == "john_doe")
+    #expect(payload.parsedBody.textFields["metadata"] == #"{"key":"value"}"#)
+  }
 }
