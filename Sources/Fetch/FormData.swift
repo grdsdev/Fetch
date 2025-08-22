@@ -1,6 +1,9 @@
 import Foundation
 
 // MARK: - FormData
+//
+// Note: This implementation is heavily inspired by Alamofire's MultipartFormData:
+// https://github.com/Alamofire/Alamofire/blob/master/Source/Features/MultipartFormData.swift
 
 /// A class for creating and encoding multipart/form-data content.
 ///
