@@ -152,8 +152,9 @@ public struct FetchOptions: Sendable {
   ///
   /// Example:
   /// ```swift
-  /// let options = FetchOptions(download: true)
-  /// let response = try await fetch("https://example.com/large-file.zip", options: options)
+  /// let response = try await fetch("https://example.com/large-file.zip") {
+  ///   $0.download = true
+  /// }
   /// let data = await response.blob()
   /// ```
   ///
@@ -449,7 +450,7 @@ public actor FetchClient: Fetch {
       if request.value(forHTTPHeaderField: "Content-Type") == nil {
         request.setValue(formData.contentType, forHTTPHeaderField: "Content-Type")
       }
-      return formData.encode()
+      return try formData.encode()
 
     case let searchParams as URLSearchParams:
       if request.value(forHTTPHeaderField: "Content-Type") == nil {
