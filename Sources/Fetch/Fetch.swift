@@ -45,7 +45,7 @@ extension Fetch {
   {
     try await self(URL(string: urlString)!, options: builder)
   }
-  
+
   /// Makes a simple GET request to the specified URL.
   ///
   /// - Parameter url: The URL to make the request to
@@ -54,7 +54,7 @@ extension Fetch {
   public func callAsFunction(_ url: URL) async throws -> Response {
     try await self(url, options: { _ in })
   }
-  
+
   /// Makes a simple GET request to the specified URL string.
   ///
   /// - Parameter urlString: The URL string to make the request to
@@ -336,6 +336,8 @@ public actor FetchClient: Fetch {
       )
     }
 
+    try optimizeRequest(for: &options)
+
     if let body = options.body {
       if let url = body as? URL {
         let task = session.uploadTask(with: urlRequest, fromFile: url)
@@ -407,6 +409,21 @@ public actor FetchClient: Fetch {
       )
     }
     return try await self(url, options: builder)
+  }
+
+  /// Optimizes the request by writing the body to a temporary file if it's a `FormData`
+  /// and the content length is larger than the threshold.
+  private func optimizeRequest(for options: inout FetchOptions) throws {
+    guard
+      let formData = options.body as? FormData,
+      formData.contentLength > FormData.encodingMemoryThreshold
+    else {
+      return
+    }
+    let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    try formData.writeEncodedData(to: tempFile)
+    options.body = tempFile
   }
 
   /// Encodes the request body based on its type and sets appropriate Content-Type headers.

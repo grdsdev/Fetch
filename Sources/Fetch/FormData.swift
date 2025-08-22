@@ -29,9 +29,6 @@ public final class FormData: Sendable {
 
   // MARK: - Properties
 
-  /// Default memory threshold used when encoding `FormData`, in bytes.
-  public static let encodingMemoryThreshold: UInt64 = 10_000_000
-
   /// The boundary string used to separate form parts
   private let boundary: String
   /// Internal storage for all form parts and error state
@@ -65,6 +62,14 @@ public final class FormData: Sendable {
   }
 
   // MARK: - Public Interface
+
+  /// Default memory threshold used when encoding `FormData`, in bytes.
+  public static let encodingMemoryThreshold: UInt64 = 10_000_000
+
+  /// The total content length of the form data, in bytes.
+  public var contentLength: UInt64 {
+    mutableState.withLock { $0.bodyParts.reduce(0) { $0 + $1.bodyContentLength } }
+  }
 
   /// Adds a new part to the multipart form data.
   ///

@@ -5,15 +5,15 @@ import Foundation
 #endif
 
 /// Represents an HTTP response received from a server.
-/// 
+///
 /// The `Response` struct contains all the information about an HTTP response,
 /// including the URL, status code, headers, and a streaming body. It provides
 /// convenient methods for accessing the response data in different formats.
-/// 
+///
 /// Example:
 /// ```swift
 /// let response = try await fetch("https://api.example.com/users")
-/// 
+///
 /// // Check if the request was successful
 /// if response.ok {
 ///   let users: [User] = try await response.json()
@@ -32,7 +32,7 @@ public struct Response: Sendable {
   /// The response body as a streamable sequence of data chunks
   public let body: Body
   /// Indicates whether the response represents a successful HTTP status (200-299)
-  /// 
+  ///
   /// Example:
   /// ```swift
   /// let response = try await fetch("https://api.example.com/data")
@@ -47,21 +47,21 @@ public struct Response: Sendable {
   public var ok: Bool { status >= 200 && status < 300 }
 
   /// Represents the body of an HTTP response as a streamable sequence of data chunks.
-  /// 
+  ///
   /// The `Body` class implements `AsyncSequence`, allowing you to process response data
   /// as it arrives from the server. This is particularly useful for large responses
   /// or when you want to process data incrementally.
-  /// 
+  ///
   /// Example:
   /// ```swift
   /// let response = try await fetch("https://api.example.com/large-dataset")
-  /// 
+  ///
   /// // Process data as it streams in
   /// for await chunk in response.body {
   ///   // Process each chunk of data
   ///   processDataChunk(chunk)
   /// }
-  /// 
+  ///
   /// // Or collect all data at once
   /// let allData = await response.blob()
   /// ```
@@ -84,13 +84,13 @@ public struct Response: Sendable {
     private let _data: Mutex<Data?> = Mutex(nil)
 
     /// Collects all data chunks from the response body into a single `Data` object.
-    /// 
+    ///
     /// This method consumes the entire response body and returns it as a single
     /// `Data` object. The data is cached after the first call, so subsequent
     /// calls will return the same data without re-reading from the stream.
-    /// 
+    ///
     /// - Returns: The complete response body as a `Data` object
-    /// 
+    ///
     /// Note: This method is called internally by `blob()`, `json()`, and `text()`.
     func collect() async -> Data {
       if let data = _data.withLock({ $0 }) {
@@ -116,10 +116,10 @@ public struct Response: Sendable {
   }
 
   /// Creates a new Response instance.
-  /// 
+  ///
   /// This initializer is typically used internally by the Fetch library
   /// when creating responses from network operations.
-  /// 
+  ///
   /// - Parameters:
   ///   - url: The response URL (may differ from request URL due to redirects)
   ///   - status: The HTTP status code
@@ -133,13 +133,13 @@ public struct Response: Sendable {
   }
 
   /// Returns the response body as a `Data` object.
-  /// 
+  ///
   /// This method collects all chunks from the response body stream and
   /// returns them as a single `Data` object. The data is cached, so
   /// subsequent calls will return the same data without re-processing.
-  /// 
+  ///
   /// - Returns: The complete response body as a `Data` object
-  /// 
+  ///
   /// Example:
   /// ```swift
   /// let response = try await fetch("https://example.com/image.jpg")
@@ -151,13 +151,13 @@ public struct Response: Sendable {
   }
 
   /// Returns the response body as a parsed JSON object.
-  /// 
+  ///
   /// This method parses the response body as JSON and returns the result
   /// as an `Any` object (typically a Dictionary or Array).
-  /// 
+  ///
   /// - Returns: The parsed JSON object
   /// - Throws: An error if the response body is not valid JSON
-  /// 
+  ///
   /// Example:
   /// ```swift
   /// let response = try await fetch("https://api.example.com/config")
@@ -169,21 +169,21 @@ public struct Response: Sendable {
   }
 
   /// Returns the response body as a decoded Swift object.
-  /// 
+  ///
   /// This method parses the response body as JSON and decodes it into
   /// the specified `Decodable` type using the provided `JSONDecoder`.
-  /// 
+  ///
   /// - Parameter decoder: The JSON decoder to use (default: JSONDecoder())
   /// - Returns: The decoded object of type `T`
   /// - Throws: An error if the response body is not valid JSON or cannot be decoded
-  /// 
+  ///
   /// Example:
   /// ```swift
   /// struct User: Decodable {
   ///   let id: Int
   ///   let name: String
   /// }
-  /// 
+  ///
   /// let response = try await fetch("https://api.example.com/user/123")
   /// let user: User = try await response.json()
   /// print("User: \(user.name)")
@@ -193,13 +193,13 @@ public struct Response: Sendable {
   }
 
   /// Returns the response body as a decoded object using a custom decoder.
-  /// 
+  ///
   /// This method is used for types that conform to `DecodableWithDecoder`,
   /// which provides their own custom decoding logic.
-  /// 
+  ///
   /// - Returns: The decoded object of type `T`
   /// - Throws: An error if the response body cannot be decoded
-  /// 
+  ///
   /// Example:
   /// ```swift
   /// struct CustomModel: DecodableWithDecoder {
@@ -208,7 +208,7 @@ public struct Response: Sendable {
   ///     return CustomModel()
   ///   }
   /// }
-  /// 
+  ///
   /// let response = try await fetch("https://api.example.com/custom")
   /// let model: CustomModel = try await response.json()
   /// ```
@@ -217,12 +217,12 @@ public struct Response: Sendable {
   }
 
   /// Returns the response body as a UTF-8 decoded string.
-  /// 
+  ///
   /// This method converts the response body data to a string using UTF-8 encoding.
-  /// 
+  ///
   /// - Returns: The response body as a `String`
   /// - Throws: An error if the response body cannot be decoded as UTF-8
-  /// 
+  ///
   /// Example:
   /// ```swift
   /// let response = try await fetch("https://api.example.com/readme.txt")
@@ -243,11 +243,11 @@ public struct Response: Sendable {
 
 extension Response.Body {
   /// A producer for manually creating response body streams.
-  /// 
+  ///
   /// The `Producer` struct provides methods for yielding data chunks
   /// and signaling completion when manually constructing response bodies.
   /// This is primarily used for testing or custom response creation.
-  /// 
+  ///
   /// Example:
   /// ```swift
   /// let body = Response.Body { producer in
@@ -307,12 +307,12 @@ extension Response.Body {
   }
 
   /// Creates a response body by calling a producer function.
-  /// 
+  ///
   /// This convenience initializer allows you to create a response body
   /// by providing a closure that uses a `Producer` to yield data chunks.
-  /// 
+  ///
   /// - Parameter producer: A closure that takes a `Producer` and uses it to yield data
-  /// 
+  ///
   /// Example:
   /// ```swift
   /// let body = Response.Body { producer in
