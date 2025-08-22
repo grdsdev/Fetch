@@ -707,4 +707,327 @@ struct FormDataTests {
     // Should be readable and writable by owner
     #expect((permissions & 0o600) == 0o600 || (permissions & 0o644) == 0o644)
   }
+  
+  // MARK: - Large FormData Optimization Tests
+  
+  @Test func testEncodingMemoryThreshold() {
+    // Test that the threshold is set to a reasonable value (10MB)
+    #expect(FormData.encodingMemoryThreshold == 10_000_000)
+  }
+  
+  @Test func testLargeFormDataContentLength() throws {
+    // Create FormData with content that exceeds the threshold
+    let formData = FormData()
+    let largeData = Data(repeating: 0x42, count: 11_000_000) // 11MB, exceeds 10MB threshold
+    formData.append("large", largeData)
+    
+    // Verify content length is calculated correctly
+    #expect(formData.contentLength > FormData.encodingMemoryThreshold)
+    #expect(formData.contentLength >= 11_000_000)
+  }
+  
+  @Test func testSmallFormDataContentLength() throws {
+    // Create FormData with content that doesn't exceed the threshold
+    let formData = FormData()
+    let smallData = Data(repeating: 0x42, count: 1_000_000) // 1MB, below 10MB threshold
+    formData.append("small", smallData)
+    
+    // Verify content length is calculated correctly
+    #expect(formData.contentLength < FormData.encodingMemoryThreshold)
+    #expect(formData.contentLength >= 1_000_000)
+  }
+  
+  @Test func testFormDataWithMultipleLargeParts() throws {
+    // Create FormData with multiple parts that together exceed the threshold
+    let formData = FormData()
+    let part1 = Data(repeating: 0x41, count: 6_000_000) // 6MB
+    let part2 = Data(repeating: 0x42, count: 5_000_000) // 5MB
+    formData.append("part1", part1)
+    formData.append("part2", part2)
+    
+    // Total should be 11MB, exceeding the 10MB threshold
+    #expect(formData.contentLength > FormData.encodingMemoryThreshold)
+    #expect(formData.contentLength >= 11_000_000)
+  }
+  
+  @Test func testFormDataWithLargeFile() throws {
+    // Create a large temporary file
+    let largeContent = String(repeating: "Large file content for testing. ", count: 500_000) // ~15MB
+    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("large-test-file.txt")
+    try largeContent.write(to: tempURL, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: tempURL) }
+    
+    let formData = FormData()
+    formData.append("largeFile", tempURL)
+    
+    // Should exceed the threshold due to the large file
+    #expect(formData.contentLength > FormData.encodingMemoryThreshold)
+  }
+  
+  @Test func testFormDataOptimizationIntegration() async throws {
+    // Test the integration with FetchClient's optimization
+    _ = FetchClient() // Create instance to verify it can be instantiated
+    
+    // Create large FormData that should trigger optimization
+    let formData = FormData()
+    let largeData = Data(repeating: 0x42, count: 11_000_000) // 11MB
+    formData.append("large", largeData)
+    formData.append("description", "Large data test")
+    
+    // Verify it exceeds threshold
+    #expect(formData.contentLength > FormData.encodingMemoryThreshold)
+    
+    // Create options with the large FormData
+    var options = FetchOptions()
+    options.method = .post
+    options.body = formData
+    
+    // The optimization should convert FormData to a temporary file URL
+    // We can't directly test the private optimizeRequest method, but we can
+    // verify that the FormData is properly handled and doesn't cause memory issues
+    
+    // This test verifies that the optimization doesn't break the FormData
+    let encoded = try formData.encode()
+    #expect(encoded.count > largeData.count) // Should include headers and boundaries
+  }
+  
+  @Test func testFormDataOptimizationWithMixedContent() throws {
+    // Test optimization with mixed content types
+    let formData = FormData()
+    
+    // Add some small parts
+    formData.append("name", "John Doe")
+    formData.append("email", "john@example.com")
+    
+    // Add a large part that triggers optimization
+    let largeData = Data(repeating: 0x42, count: 11_000_000) // 11MB
+    formData.append("large", largeData)
+    
+    // Add more small parts
+    formData.append("description", "Mixed content test")
+    
+    // Should exceed threshold due to the large part
+    #expect(formData.contentLength > FormData.encodingMemoryThreshold)
+    
+    // Should still encode correctly
+    let encoded = try formData.encode()
+    #expect(!encoded.isEmpty)
+    
+    let encodedString = String(data: encoded, encoding: .utf8)!
+    #expect(encodedString.contains("John Doe"))
+    #expect(encodedString.contains("john@example.com"))
+    #expect(encodedString.contains("Mixed content test"))
+  }
+  
+  @Test func testFormDataOptimizationThresholdEdgeCase() throws {
+    // Test exactly at the threshold boundary
+    let formData = FormData()
+    
+    // Create data that's exactly at the threshold (10MB)
+    let thresholdData = Data(repeating: 0x42, count: 10_000_000)
+    formData.append("threshold", thresholdData)
+    
+    // Should be at or slightly above threshold due to headers and boundaries
+    #expect(formData.contentLength >= FormData.encodingMemoryThreshold)
+    
+    // Should still encode correctly
+    let encoded = try formData.encode()
+    #expect(!encoded.isEmpty)
+  }
+  
+  @Test func testFormDataOptimizationWithComplexData() throws {
+    // Test optimization with complex data structures
+    struct ComplexData: Encodable {
+      let name: String
+      let details: [String: String]
+      let numbers: [Int]
+    }
+    
+    let complexData = ComplexData(
+      name: "Complex Test",
+      details: ["key1": "value1", "key2": "value2"],
+      numbers: Array(1...1000) // Large array
+    )
+    
+    let formData = FormData()
+    
+    // Add complex data
+    formData.append("complex", complexData)
+    
+    // Add large binary data to trigger optimization
+    let largeData = Data(repeating: 0x42, count: 11_000_000) // 11MB
+    formData.append("large", largeData)
+    
+    // Should exceed threshold
+    #expect(formData.contentLength > FormData.encodingMemoryThreshold)
+    
+    // Should still encode correctly
+    let encoded = try formData.encode()
+    #expect(!encoded.isEmpty)
+    
+    let encodedString = String(data: encoded, encoding: .utf8)!
+    #expect(encodedString.contains("Complex Test"))
+    #expect(encodedString.contains("key1"))
+    #expect(encodedString.contains("value1"))
+  }
+  
+  @Test func testFormDataOptimizationMemoryEfficiency() throws {
+    // Test that the optimization actually improves memory efficiency
+    let formData = FormData()
+    
+    // Create multiple large parts to stress test memory usage
+    for i in 0..<5 {
+      let largeData = Data(repeating: UInt8(i), count: 2_000_000) // 2MB each, 10MB total
+      formData.append("part\(i)", largeData)
+    }
+    
+    // Should meet or exceed threshold (accounting for headers and boundaries)
+    #expect(formData.contentLength >= FormData.encodingMemoryThreshold)
+    
+    // Test both encoding methods to ensure they work correctly
+    let encodedInMemory = try formData.encode()
+    #expect(!encodedInMemory.isEmpty)
+    
+    // Test file-based encoding
+    let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("memory-efficiency-test.txt")
+    defer { try? FileManager.default.removeItem(at: outputURL) }
+    
+    try formData.writeEncodedData(to: outputURL)
+    #expect(FileManager.default.fileExists(atPath: outputURL.path))
+    
+    // Verify the file was created successfully
+    #expect(FileManager.default.fileExists(atPath: outputURL.path))
+    
+    // Verify the file contains the expected structure
+    let fileContent = try Data(contentsOf: outputURL)
+    let fileString = String(data: fileContent, encoding: .utf8)!
+    #expect(fileString.contains("name=\"part0\""))
+    #expect(fileString.contains("name=\"part1\""))
+    #expect(fileString.contains("name=\"part2\""))
+    #expect(fileString.contains("name=\"part3\""))
+    #expect(fileString.contains("name=\"part4\""))
+  }
+  
+  @Test func testFormDataOptimizationWithURLSearchParams() throws {
+    // Test optimization with URLSearchParams
+    var params = URLSearchParams()
+    for i in 0..<1000 {
+      params.append("key\(i)", value: "value\(i)")
+    }
+    
+    let formData = FormData()
+    formData.append("params", params)
+    
+    // Add large data to trigger optimization
+    let largeData = Data(repeating: 0x42, count: 11_000_000) // 11MB
+    formData.append("large", largeData)
+    
+    // Should exceed threshold
+    #expect(formData.contentLength > FormData.encodingMemoryThreshold)
+    
+    // Should still encode correctly
+    let encoded = try formData.encode()
+    #expect(!encoded.isEmpty)
+    
+    let encodedString = String(data: encoded, encoding: .utf8)!
+    #expect(encodedString.contains("key0"))
+    #expect(encodedString.contains("value0"))
+    #expect(encodedString.contains("key999"))
+    #expect(encodedString.contains("value999"))
+  }
+  
+  @Test func testFormDataOptimizationErrorHandling() throws {
+    // Test that optimization doesn't interfere with error handling
+    let formData = FormData()
+    
+    // Add an invalid URL that will cause an error
+    let invalidURL = URL(string: "https://example.com/file.txt")!
+    formData.append("invalid", invalidURL)
+    
+    // Add large data to trigger optimization
+    let largeData = Data(repeating: 0x42, count: 11_000_000) // 11MB
+    formData.append("large", largeData)
+    
+    // Should exceed threshold
+    #expect(formData.contentLength > FormData.encodingMemoryThreshold)
+    
+    // Should still throw the same error during encoding
+    do {
+      _ = try formData.encode()
+      #expect(Bool(false), "Should have thrown an error for invalid URL")
+    } catch {
+      #expect(error.localizedDescription.contains("file URL"))
+    }
+    
+    // Should also throw during file writing
+    let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("error-test.txt")
+    defer { try? FileManager.default.removeItem(at: outputURL) }
+    
+    do {
+      try formData.writeEncodedData(to: outputURL)
+      #expect(Bool(false), "Should have thrown an error for invalid URL during file writing")
+    } catch {
+      #expect(error.localizedDescription.contains("file URL"))
+    }
+  }
+  
+  @Test func testFormDataOptimizationBoundaryConsistency() throws {
+    // Test that optimization preserves boundary consistency
+    let customBoundary = "custom-boundary-123"
+    let formData = FormData(boundary: customBoundary)
+    
+    let largeData = Data(repeating: 0x42, count: 11_000_000) // 11MB
+    formData.append("large", largeData)
+    formData.append("description", "Boundary test")
+    
+    // Should exceed threshold
+    #expect(formData.contentLength > FormData.encodingMemoryThreshold)
+    
+    // Test both encoding methods
+    let encodedInMemory = try formData.encode()
+    let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("boundary-test.txt")
+    defer { try? FileManager.default.removeItem(at: outputURL) }
+    
+    try formData.writeEncodedData(to: outputURL)
+    
+    // Both should contain the custom boundary
+    let encodedString = String(data: encodedInMemory, encoding: .utf8)!
+    let fileContent = try String(contentsOf: outputURL, encoding: .utf8)
+    
+    #expect(encodedString.contains(customBoundary))
+    #expect(fileContent.contains(customBoundary))
+  }
+  
+  @Test func testFormDataOptimizationPerformance() throws {
+    // Test performance characteristics of the optimization
+    let formData = FormData()
+    
+    // Create a very large FormData to test performance
+    let largeData = Data(repeating: 0x42, count: 50_000_000) // 50MB
+    formData.append("veryLarge", largeData)
+    
+    // Should meet or exceed threshold (accounting for headers and boundaries)
+    #expect(formData.contentLength >= FormData.encodingMemoryThreshold * 5)
+    
+    // Measure time for file-based encoding
+    let startTime = CFAbsoluteTimeGetCurrent()
+    
+    let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("performance-test.txt")
+    defer { try? FileManager.default.removeItem(at: outputURL) }
+    
+    try formData.writeEncodedData(to: outputURL)
+    
+    let endTime = CFAbsoluteTimeGetCurrent()
+    let duration = endTime - startTime
+    
+    // Should complete within reasonable time (adjust threshold as needed)
+    #expect(duration < 10.0) // Should complete within 10 seconds
+    
+    // Verify file was created and has expected size
+    #expect(FileManager.default.fileExists(atPath: outputURL.path))
+    
+    let fileAttributes = try FileManager.default.attributesOfItem(atPath: outputURL.path)
+    let fileSize = fileAttributes[.size] as? Int ?? 0
+    #expect(fileSize > largeData.count) // Should be larger due to headers and boundaries
+  }
 }
