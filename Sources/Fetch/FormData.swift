@@ -29,6 +29,9 @@ public final class FormData: Sendable {
 
   // MARK: - Properties
 
+  /// Default memory threshold used when encoding `FormData`, in bytes.
+  public static let encodingMemoryThreshold: UInt64 = 10_000_000
+
   /// The boundary string used to separate form parts
   private let boundary: String
   /// Internal storage for all form parts and error state
@@ -182,6 +185,40 @@ public final class FormData: Sendable {
     return encoded
   }
 
+  /// Writes all appended body parts to the given file `URL`.
+  ///
+  /// This process is facilitated by reading and writing with input and output streams, respectively. Thus,
+  /// this approach is very memory efficient and should be used for large body part data.
+  ///
+  /// - Parameter fileURL: File `URL` to which to write the form data.
+  public func writeEncodedData(to fileURL: URL) throws {
+    try mutableState.withLock {
+      if let error = $0.bodyPartError {
+        throw error
+      }
+
+      if FileManager.default.fileExists(atPath: fileURL.path) {
+        throw FormDataError("File already exists: \(fileURL)")
+      } else if !fileURL.isFileURL {
+        throw FormDataError("Invalid file URL: \(fileURL)")
+      }
+
+      guard let outputStream = OutputStream(url: fileURL, append: false) else {
+        throw FormDataError("Failed to create output stream: \(fileURL)")
+      }
+
+      outputStream.open()
+      defer { outputStream.close() }
+
+      $0.bodyParts.first?.hasInitialBoundary = true
+      $0.bodyParts.last?.hasFinalBoundary = true
+
+      for bodyPart in $0.bodyParts {
+        try write(bodyPart, to: outputStream)
+      }
+    }
+  }
+
   /// Returns the Content-Type header value for this multipart form data.
   ///
   /// This property provides the complete Content-Type header value including
@@ -198,7 +235,7 @@ public final class FormData: Sendable {
   }
 }
 
-// MARK: - Fileprivate Methods
+// MARK: - Private Encoding Methods
 
 extension FormData {
 
@@ -212,7 +249,7 @@ extension FormData {
   ///   - filename: Optional filename for file uploads
   ///   - contentType: Optional MIME type
   /// - Returns: HTTPHeaders with appropriate disposition and type headers
-  fileprivate func createHeaders(
+  private func createHeaders(
     name: String,
     filename: String?,
     contentType: String?
@@ -233,7 +270,7 @@ extension FormData {
   }
 
   /// Encodes a single body part with boundaries and headers.
-  fileprivate func encode(_ bodyPart: BodyPart) throws -> Data {
+  private func encode(_ bodyPart: BodyPart) throws -> Data {
     var encoded = Data()
 
     let initialData =
@@ -254,7 +291,7 @@ extension FormData {
   }
 
   /// Encodes headers for a body part.
-  fileprivate func encodeHeaders(for bodyPart: BodyPart) -> Data {
+  private func encodeHeaders(for bodyPart: BodyPart) -> Data {
     let headerText =
       bodyPart.headers
       .map { "\($0.key): \($0.value)\(EncodingConstants.crlf)" }
@@ -264,7 +301,7 @@ extension FormData {
   }
 
   /// Encodes the body stream for a body part.
-  fileprivate func encodeBodyStream(for bodyPart: BodyPart) throws -> Data {
+  private func encodeBodyStream(for bodyPart: BodyPart) throws -> Data {
     let inputStream = bodyPart.bodyStream
     inputStream.open()
     defer { inputStream.close() }
@@ -297,16 +334,111 @@ extension FormData {
 
   // MARK: - Boundary Data Methods
 
-  fileprivate func initialBoundaryData() -> Data {
+  private func initialBoundaryData() -> Data {
     BoundaryGenerator.boundaryData(forBoundaryType: .initial, boundary: boundary)
   }
 
-  fileprivate func encapsulatedBoundaryData() -> Data {
+  private func encapsulatedBoundaryData() -> Data {
     BoundaryGenerator.boundaryData(forBoundaryType: .encapsulated, boundary: boundary)
   }
 
-  fileprivate func finalBoundaryData() -> Data {
+  private func finalBoundaryData() -> Data {
     BoundaryGenerator.boundaryData(forBoundaryType: .final, boundary: boundary)
+  }
+}
+
+// MARK: - Private File Writing Methods
+
+extension FormData {
+
+  /// Writes a body part to the output stream.
+  private func write(_ bodyPart: BodyPart, to outputStream: OutputStream) throws {
+    try writeInitialBoundaryData(for: bodyPart, to: outputStream)
+    try writeHeaderData(for: bodyPart, to: outputStream)
+    try writeBodyStream(for: bodyPart, to: outputStream)
+    try writeFinalBoundaryData(for: bodyPart, to: outputStream)
+  }
+
+  /// Writes initial boundary data for a body part.
+  private func writeInitialBoundaryData(for bodyPart: BodyPart, to outputStream: OutputStream)
+    throws
+  {
+    let initialData =
+      bodyPart.hasInitialBoundary ? initialBoundaryData() : encapsulatedBoundaryData()
+    return try write(initialData, to: outputStream)
+  }
+
+  /// Writes header data for a body part.
+  private func writeHeaderData(for bodyPart: BodyPart, to outputStream: OutputStream) throws {
+    let headerData = encodeHeaders(for: bodyPart)
+    return try write(headerData, to: outputStream)
+  }
+
+  /// Writes body stream for a body part.
+  private func writeBodyStream(for bodyPart: BodyPart, to outputStream: OutputStream) throws {
+    let inputStream = bodyPart.bodyStream
+
+    inputStream.open()
+    defer { inputStream.close() }
+
+    var bytesLeftToRead = bodyPart.bodyContentLength
+    while inputStream.hasBytesAvailable && bytesLeftToRead > 0 {
+      let bufferSize = min(EncodingConstants.bufferSize, Int(bytesLeftToRead))
+      var buffer = [UInt8](repeating: 0, count: bufferSize)
+      let bytesRead = inputStream.read(&buffer, maxLength: bufferSize)
+
+      if let streamError = inputStream.streamError {
+        throw FormDataError("Failed to read from input stream: \(streamError)")
+      }
+
+      if bytesRead > 0 {
+        if buffer.count != bytesRead {
+          buffer = Array(buffer[0..<bytesRead])
+        }
+
+        try write(&buffer, to: outputStream)
+        bytesLeftToRead -= UInt64(bytesRead)
+      } else {
+        break
+      }
+    }
+  }
+
+  /// Writes final boundary data for a body part.
+  private func writeFinalBoundaryData(for bodyPart: BodyPart, to outputStream: OutputStream) throws
+  {
+    if bodyPart.hasFinalBoundary {
+      try write(finalBoundaryData(), to: outputStream)
+    }
+  }
+
+  // MARK: - Output Stream Writing Methods
+
+  /// Writes data to the output stream.
+  private func write(_ data: Data, to outputStream: OutputStream) throws {
+    var buffer = [UInt8](repeating: 0, count: data.count)
+    data.copyBytes(to: &buffer, count: data.count)
+
+    return try write(&buffer, to: outputStream)
+  }
+
+  /// Writes buffer to the output stream.
+  private func write(_ buffer: inout [UInt8], to outputStream: OutputStream) throws {
+    var bytesToWrite = buffer.count
+
+    while bytesToWrite > 0, outputStream.hasSpaceAvailable {
+      let bytesWritten = outputStream.write(buffer, maxLength: bytesToWrite)
+
+      if let error = outputStream.streamError {
+        throw FormDataError("Failed to write to output stream: \(error)")
+      }
+
+      bytesToWrite -= bytesWritten
+
+      if bytesToWrite > 0 {
+        buffer = Array(buffer[bytesWritten..<buffer.count])
+      }
+    }
   }
 }
 
@@ -531,8 +663,9 @@ private class FormDataDecoder {
 
   private func extractBoundary(from contentType: String) throws -> String {
     guard contentType.contains("boundary="),
-          let boundary = contentType.components(separatedBy: "boundary=").last,
-          !boundary.isEmpty else {
+      let boundary = contentType.components(separatedBy: "boundary=").last,
+      !boundary.isEmpty
+    else {
       throw FormDataError.missingBoundary
     }
     return boundary
