@@ -1,5 +1,7 @@
 import Foundation
 
+// MARK: - FormData
+
 /// A structure for creating and encoding multipart/form-data content.
 ///
 /// `FormData` is commonly used for file uploads and complex form submissions
@@ -16,11 +18,16 @@ import Foundation
 /// let response = try await fetch("https://api.example.com/upload", options: options)
 /// ```
 public final class FormData: Sendable {
+  
+  // MARK: - Properties
+  
   /// The boundary string used to separate form parts
   private let boundary: String
   /// Internal storage for all form parts
-  private let bodyParts = Mutex<[BodyPart]>([])
-
+  internal let bodyParts = Mutex<[BodyPart]>([])
+  
+  // MARK: - Initialization
+  
   /// Initializes a new FormData instance.
   ///
   /// The boundary is used to separate different parts of the multipart form data.
@@ -37,7 +44,9 @@ public final class FormData: Sendable {
   public init(boundary: String? = nil) {
     self.boundary = boundary ?? BoundaryGenerator.randomBoundary()
   }
-
+  
+  // MARK: - Public Interface
+  
   /// Adds a new part to the multipart form data.
   ///
   /// This method supports various value types and automatically handles encoding
@@ -79,101 +88,26 @@ public final class FormData: Sendable {
     filename: String? = nil,
     contentType: String? = nil
   ) throws {
-    let stream: InputStream
-    let contentLength: UInt64
-
-    var filename = filename
-    var contentType = contentType
-
-    switch value {
-    case let data as Data:
-      stream = InputStream(data: data)
-      contentLength = UInt64(data.count)
-    case let str as String:
-      let data = Data(str.utf8)
-      stream = InputStream(data: data)
-      contentLength = UInt64(data.count)
-    case let url as URL:
-      if contentType == nil {
-        contentType = FormData.mimeType(forPathExtension: url.pathExtension)
-      }
-
-      if filename == nil {
-        filename = url.lastPathComponent
-      }
-
-      guard url.isFileURL else {
-        throw FormDataError("The URL is not a file URL: \(url)")
-      }
-
-      #if !(os(Linux) || os(Windows) || os(Android))
-        let isReachable = try url.checkPromisedItemIsReachable()
-        guard isReachable else {
-          throw FormDataError("The file is not reachable: \(url)")
-        }
-      #endif
-
-      var isDirectory: ObjCBool = false
-      let path = url.path
-
-      guard
-        FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-          && !isDirectory.boolValue
-      else {
-        throw FormDataError("The file is a directory: \(url)")
-      }
-
-      guard
-        let fileSize = try FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber
-      else {
-        throw FormDataError("The file size is not available: \(url)")
-      }
-
-      contentLength = fileSize.uint64Value
-
-      guard let inputStream = InputStream(url: url) else {
-        throw FormDataError("Failed to create input stream from URL: \(url)")
-      }
-
-      stream = inputStream
-
-    case let searchParams as URLSearchParams:
-      let data = Data(searchParams.description.utf8)
-      stream = InputStream(data: data)
-      contentLength = UInt64(data.count)
-    case let value as any EncodableWithEncoder:
-      let data = try value.encode()
-      stream = InputStream(data: data)
-      contentLength = UInt64(data.count)
-    case let value as any Encodable:
-      let data = try JSONEncoder().encode(value)
-      stream = InputStream(data: data)
-      contentLength = UInt64(data.count)
-    default:
-      if JSONSerialization.isValidJSONObject(value) {
-        let data = try JSONSerialization.data(withJSONObject: value)
-        stream = InputStream(data: data)
-        contentLength = UInt64(data.count)
-      } else {
-        fatalError("Unsupported value type for form data: \(type(of: value))")
-      }
-    }
-
-    // no content type provided, try to extract it from the filename.
-    if contentType == nil, let filename {
-      contentType = FormData.mimeType(forPathExtension: (filename as NSString).pathExtension)
-    }
-
+    let processedValue = try ValueProcessor.process(value)
+    let finalFilename = filename ?? processedValue.filename
+    let finalContentType = contentType ?? processedValue.contentType ?? 
+      Self.mimeType(forPathExtension: (finalFilename as NSString?)?.pathExtension ?? "")
+    
     let headers = createHeaders(
       name: name,
-      filename: filename,
-      contentType: contentType
+      filename: finalFilename,
+      contentType: finalContentType
     )
-
-    let bodyPart = BodyPart(headers: headers, bodyStream: stream, bodyContentLength: contentLength)
+    
+    let bodyPart = BodyPart(
+      headers: headers,
+      bodyStream: processedValue.stream,
+      bodyContentLength: processedValue.contentLength
+    )
+    
     bodyParts.withLock { $0.append(bodyPart) }
   }
-
+  
   /// Encodes the multipart form data into a single Data object.
   ///
   /// This method combines all added parts with appropriate headers and boundaries
@@ -189,20 +123,20 @@ public final class FormData: Sendable {
   /// ```
   public func encode() throws -> Data {
     var encoded = Data()
-
+    
     try bodyParts.withLock { parts in
       parts.first?.hasInitialBoundary = true
       parts.last?.hasFinalBoundary = true
-
+      
       for bodyPart in parts {
         let encodedData = try encode(bodyPart)
         encoded.append(encodedData)
       }
     }
-
+    
     return encoded
   }
-
+  
   /// Returns the Content-Type header value for this multipart form data.
   ///
   /// This property provides the complete Content-Type header value including
@@ -217,7 +151,12 @@ public final class FormData: Sendable {
   public var contentType: String {
     "multipart/form-data; boundary=\(boundary)"
   }
+}
 
+// MARK: - Private Methods
+
+private extension FormData {
+  
   /// Creates appropriate headers for a form part.
   ///
   /// This method generates the Content-Disposition and Content-Type headers
@@ -228,57 +167,106 @@ public final class FormData: Sendable {
   ///   - filename: Optional filename for file uploads
   ///   - contentType: Optional MIME type
   /// - Returns: HTTPHeaders with appropriate disposition and type headers
-  private func createHeaders(
+  func createHeaders(
     name: String,
     filename: String?,
     contentType: String?
   ) -> HTTPHeaders {
     var headers = HTTPHeaders()
-
+    
     var disposition = "form-data; name=\"\(name)\""
     if let filename = filename {
       disposition += "; filename=\"\(filename)\""
     }
     headers["Content-Disposition"] = disposition
-
+    
     if let contentType = contentType {
       headers["Content-Type"] = contentType
     }
-
+    
     return headers
   }
-
-  private enum EncodingCharacters {
-    static let crlf = "\r\n"
+  
+  /// Encodes a single body part with boundaries and headers.
+  func encode(_ bodyPart: BodyPart) throws -> Data {
+    var encoded = Data()
+    
+    let initialData = bodyPart.hasInitialBoundary ? 
+      initialBoundaryData() : encapsulatedBoundaryData()
+    encoded.append(initialData)
+    
+    let headerData = encodeHeaders(for: bodyPart)
+    encoded.append(headerData)
+    
+    let bodyStreamData = try encodeBodyStream(for: bodyPart)
+    encoded.append(bodyStreamData)
+    
+    if bodyPart.hasFinalBoundary {
+      encoded.append(finalBoundaryData())
+    }
+    
+    return encoded
   }
-
-  private enum BoundaryGenerator {
-    enum BoundaryType {
-      case initial, encapsulated, final
-    }
-
-    static func randomBoundary() -> String {
-      let first = UInt32.random(in: UInt32.min...UInt32.max)
-      let second = UInt32.random(in: UInt32.min...UInt32.max)
-
-      return String(format: "dev.grds.fetch.boundary.%08x%08x", first, second)
-    }
-
-    static func boundaryData(forBoundaryType boundaryType: BoundaryType, boundary: String) -> Data {
-      let boundaryText =
-        switch boundaryType {
-        case .initial:
-          "--\(boundary)\(EncodingCharacters.crlf)"
-        case .encapsulated:
-          "\(EncodingCharacters.crlf)--\(boundary)\(EncodingCharacters.crlf)"
-        case .final:
-          "\(EncodingCharacters.crlf)--\(boundary)--\(EncodingCharacters.crlf)"
-        }
-
-      return Data(boundaryText.utf8)
-    }
+  
+  /// Encodes headers for a body part.
+  func encodeHeaders(for bodyPart: BodyPart) -> Data {
+    let headerText = bodyPart.headers
+      .map { "\($0.key): \($0.value)\(EncodingConstants.crlf)" }
+      .joined() + EncodingConstants.crlf
+    
+    return Data(headerText.utf8)
   }
+  
+  /// Encodes the body stream for a body part.
+  func encodeBodyStream(for bodyPart: BodyPart) throws -> Data {
+    let inputStream = bodyPart.bodyStream
+    inputStream.open()
+    defer { inputStream.close() }
+    
+    var encoded = Data()
+    
+    while inputStream.hasBytesAvailable {
+      var buffer = [UInt8](repeating: 0, count: EncodingConstants.bufferSize)
+      let bytesRead = inputStream.read(&buffer, maxLength: EncodingConstants.bufferSize)
+      
+      if let error = inputStream.streamError {
+        throw FormDataError("Failed to read from input stream: \(error)")
+      }
+      
+      if bytesRead > 0 {
+        encoded.append(buffer, count: bytesRead)
+      } else {
+        break
+      }
+    }
+    
+    guard UInt64(encoded.count) == bodyPart.bodyContentLength else {
+      throw FormDataError(
+        "Unexpected input stream length: expected \(bodyPart.bodyContentLength) bytes, got \(encoded.count)"
+      )
+    }
+    
+    return encoded
+  }
+  
+  // MARK: - Boundary Data Methods
+  
+  func initialBoundaryData() -> Data {
+    BoundaryGenerator.boundaryData(forBoundaryType: .initial, boundary: boundary)
+  }
+  
+  func encapsulatedBoundaryData() -> Data {
+    BoundaryGenerator.boundaryData(forBoundaryType: .encapsulated, boundary: boundary)
+  }
+  
+  func finalBoundaryData() -> Data {
+    BoundaryGenerator.boundaryData(forBoundaryType: .final, boundary: boundary)
+  }
+}
 
+// MARK: - BodyPart
+
+extension FormData {
   /// Represents a single part within the multipart form data.
   /// Each part consists of headers and a stream of the body content.
   final class BodyPart {
@@ -288,95 +276,165 @@ public final class FormData: Sendable {
     let bodyStream: InputStream
     /// The length of the body content for this part
     let bodyContentLength: UInt64
-
+    
     var hasInitialBoundary: Bool = false
     var hasFinalBoundary: Bool = false
-
+    
     init(headers: HTTPHeaders, bodyStream: InputStream, bodyContentLength: UInt64) {
       self.headers = headers
       self.bodyStream = bodyStream
       self.bodyContentLength = bodyContentLength
     }
   }
-
-  private func encode(_ bodyPart: BodyPart) throws -> Data {
-    var encoded = Data()
-
-    let initialData =
-      bodyPart.hasInitialBoundary ? initialBoundaryData() : encapsulatedBoundaryData()
-    encoded.append(initialData)
-
-    let headerData = encodeHeaders(for: bodyPart)
-    encoded.append(headerData)
-
-    let bodyStreamData = try encodeBodyStream(for: bodyPart)
-    encoded.append(bodyStreamData)
-
-    if bodyPart.hasFinalBoundary {
-      encoded.append(finalBoundaryData())
-    }
-
-    return encoded
-  }
-
-  private func encodeHeaders(for bodyPart: BodyPart) -> Data {
-    let headerText =
-      bodyPart.headers.map { "\($0.key): \($0.value)\(EncodingCharacters.crlf)" }
-      .joined()
-      + EncodingCharacters.crlf
-
-    return Data(headerText.utf8)
-  }
-
-  private func encodeBodyStream(for bodyPart: BodyPart) throws -> Data {
-    let inputStream = bodyPart.bodyStream
-    inputStream.open()
-    defer { inputStream.close() }
-
-    var encoded = Data()
-
-    while inputStream.hasBytesAvailable {
-      //
-      // The optimal read/write buffer size in bytes for input and output streams is 1024 (1KB). For more
-      // information, please refer to the following article:
-      //   - https://developer.apple.com/library/mac/documentation/Cocoa/Conceptual/Streams/Articles/ReadingInputStreams.html
-      //
-      var buffer = [UInt8](repeating: 0, count: 1024)
-      let bytesRead = inputStream.read(&buffer, maxLength: 1024)
-
-      if let error = inputStream.streamError {
-        throw FormDataError("Failed to read from input stream: \(error)")
-      }
-
-      if bytesRead > 0 {
-        encoded.append(buffer, count: bytesRead)
-      } else {
-        break
-      }
-    }
-
-    guard UInt64(encoded.count) == bodyPart.bodyContentLength else {
-      throw FormDataError(
-        "Unexpected input stream length: expected \(bodyPart.bodyContentLength) bytes, got \(encoded.count)"
-      )
-    }
-
-    return encoded
-  }
-
-  private func initialBoundaryData() -> Data {
-    BoundaryGenerator.boundaryData(forBoundaryType: .initial, boundary: boundary)
-  }
-
-  private func encapsulatedBoundaryData() -> Data {
-    BoundaryGenerator.boundaryData(forBoundaryType: .encapsulated, boundary: boundary)
-  }
-
-  private func finalBoundaryData() -> Data {
-    BoundaryGenerator.boundaryData(forBoundaryType: .final, boundary: boundary)
-  }
-
 }
+
+// MARK: - Constants
+
+private enum EncodingConstants {
+  static let crlf = "\r\n"
+  static let bufferSize = 1024 // Optimal buffer size for input/output streams
+}
+
+// MARK: - Boundary Generator
+
+private enum BoundaryGenerator {
+  enum BoundaryType {
+    case initial, encapsulated, final
+  }
+  
+  static func randomBoundary() -> String {
+    let first = UInt32.random(in: UInt32.min...UInt32.max)
+    let second = UInt32.random(in: UInt32.min...UInt32.max)
+    
+    return String(format: "dev.grds.fetch.boundary.%08x%08x", first, second)
+  }
+  
+  static func boundaryData(forBoundaryType boundaryType: BoundaryType, boundary: String) -> Data {
+    let boundaryText = switch boundaryType {
+    case .initial:
+      "--\(boundary)\(EncodingConstants.crlf)"
+    case .encapsulated:
+      "\(EncodingConstants.crlf)--\(boundary)\(EncodingConstants.crlf)"
+    case .final:
+      "\(EncodingConstants.crlf)--\(boundary)--\(EncodingConstants.crlf)"
+    }
+    
+    return Data(boundaryText.utf8)
+  }
+}
+
+// MARK: - Value Processor
+
+private enum ValueProcessor {
+  
+  struct ProcessedValue {
+    let stream: InputStream
+    let contentLength: UInt64
+    let filename: String?
+    let contentType: String?
+  }
+  
+  static func process(_ value: Any) throws -> ProcessedValue {
+    switch value {
+    case let data as Data:
+      return ProcessedValue(
+        stream: InputStream(data: data),
+        contentLength: UInt64(data.count),
+        filename: nil,
+        contentType: nil
+      )
+      
+    case let str as String:
+      let data = Data(str.utf8)
+      return ProcessedValue(
+        stream: InputStream(data: data),
+        contentLength: UInt64(data.count),
+        filename: nil,
+        contentType: nil
+      )
+      
+    case let url as URL:
+      return try processURL(url)
+      
+    case let searchParams as URLSearchParams:
+      let data = Data(searchParams.description.utf8)
+      return ProcessedValue(
+        stream: InputStream(data: data),
+        contentLength: UInt64(data.count),
+        filename: nil,
+        contentType: nil
+      )
+      
+    case let value as any EncodableWithEncoder:
+      let data = try value.encode()
+      return ProcessedValue(
+        stream: InputStream(data: data),
+        contentLength: UInt64(data.count),
+        filename: nil,
+        contentType: nil
+      )
+      
+    case let value as any Encodable:
+      let data = try JSONEncoder().encode(value)
+      return ProcessedValue(
+        stream: InputStream(data: data),
+        contentLength: UInt64(data.count),
+        filename: nil,
+        contentType: nil
+      )
+      
+    default:
+      if JSONSerialization.isValidJSONObject(value) {
+        let data = try JSONSerialization.data(withJSONObject: value)
+        return ProcessedValue(
+          stream: InputStream(data: data),
+          contentLength: UInt64(data.count),
+          filename: nil,
+          contentType: nil
+        )
+      } else {
+        fatalError("Unsupported value type for form data: \(type(of: value))")
+      }
+    }
+  }
+  
+  private static func processURL(_ url: URL) throws -> ProcessedValue {
+    guard url.isFileURL else {
+      throw FormDataError("The URL is not a file URL: \(url)")
+    }
+    
+    #if !(os(Linux) || os(Windows) || os(Android))
+    let isReachable = try url.checkPromisedItemIsReachable()
+    guard isReachable else {
+      throw FormDataError("The file is not reachable: \(url)")
+    }
+    #endif
+    
+    var isDirectory: ObjCBool = false
+    let path = url.path
+    
+    guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && !isDirectory.boolValue else {
+      throw FormDataError("The file is a directory: \(url)")
+    }
+    
+    guard let fileSize = try FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber else {
+      throw FormDataError("The file size is not available: \(url)")
+    }
+    
+    guard let inputStream = InputStream(url: url) else {
+      throw FormDataError("Failed to create input stream from URL: \(url)")
+    }
+    
+    return ProcessedValue(
+      stream: inputStream,
+      contentLength: fileSize.uint64Value,
+      filename: url.lastPathComponent,
+      contentType: FormData.mimeType(forPathExtension: url.pathExtension)
+    )
+  }
+}
+
+// MARK: - Decoding Extension
 
 extension FormData {
   /// Decodes a FormData instance from raw multipart form data.
@@ -397,80 +455,116 @@ extension FormData {
   /// let formData = try FormData.decode(from: rawData, contentType: contentType)
   /// ```
   static func decode(from data: Data, contentType: String) throws -> FormData {
-    // Extract boundary from content type
+    let decoder = FormDataDecoder()
+    return try decoder.decode(from: data, contentType: contentType)
+  }
+}
+
+// MARK: - FormData Decoder
+
+private class FormDataDecoder {
+  
+  func decode(from data: Data, contentType: String) throws -> FormData {
+    let boundary = try extractBoundary(from: contentType)
+    let formData = FormData(boundary: boundary)
+    
+    let parts = try parseParts(from: data, boundary: boundary)
+    
+    for part in parts {
+      let bodyPart = try createBodyPart(from: part)
+      formData.bodyParts.withLock { $0.append(bodyPart) }
+    }
+    
+    return formData
+  }
+  
+  private func extractBoundary(from contentType: String) throws -> String {
     guard let boundary = contentType.components(separatedBy: "boundary=").last else {
       throw FormDataError.missingBoundary
     }
-
-    // Create FormData instance with the extracted boundary
-    let formData = FormData(boundary: boundary)
-
-    // Convert boundary to Data for binary search
+    return boundary
+  }
+  
+  private func parseParts(from data: Data, boundary: String) throws -> [PartData] {
     let boundaryData = "--\(boundary)".data(using: .utf8)!
     let crlfData = "\r\n".data(using: .utf8)!
     let doubleCrlfData = "\r\n\r\n".data(using: .utf8)!
-
-    // Find all boundary positions
+    
     var currentIndex = data.startIndex
-    var parts: [(start: Int, end: Int)] = []
+    var parts: [PartData] = []
+    
     while let boundaryRange = data[currentIndex...].range(of: boundaryData) {
       let partStart = boundaryRange.endIndex
       currentIndex = partStart
-
+      
       // Skip if this is the final boundary
       if let dashRange = data[currentIndex...].range(of: "--".data(using: .utf8)!) {
         if dashRange.lowerBound == currentIndex {
           break
         }
       }
-
+      
       // Find the next boundary
       if let nextBoundaryRange = data[currentIndex...].range(of: boundaryData) {
         let partEnd = nextBoundaryRange.lowerBound - crlfData.count
         if partStart < partEnd {
-          parts.append((start: partStart, end: partEnd))
+          let partData = data[partStart..<partEnd]
+          if let part = parsePart(from: partData, doubleCrlfData: doubleCrlfData) {
+            parts.append(part)
+          }
         }
         currentIndex = nextBoundaryRange.lowerBound
       }
     }
-
-    // Process each part
-    for part in parts {
-      let partData = data[part.start..<part.end]
-
-      // Find headers section
-      guard let headersSeparator = partData.range(of: doubleCrlfData) else { continue }
-      let headersData = partData[..<headersSeparator.lowerBound]
-
-      // Parse headers (headers are always UTF-8)
-      guard let headersString = String(data: headersData, encoding: .utf8) else { continue }
-      var headers = HTTPHeaders()
-
-      let headerLines = headersString.components(separatedBy: "\r\n")
-      for line in headerLines {
-        let headerParts = line.split(separator: ":", maxSplits: 1).map(String.init)
-        guard headerParts.count == 2 else { continue }
-        headers[headerParts[0].trimmingCharacters(in: .whitespaces)] =
-          headerParts[1].trimmingCharacters(in: .whitespaces)
-      }
-
-      // Extract content (binary data)
-      let contentStart = headersSeparator.upperBound
-      let contentData = partData[contentStart...]
-
-      // Create body part with raw data
-      let contentDataBytes = Data(contentData)
-      let bodyPart = BodyPart(
-        headers: headers,
-        bodyStream: InputStream(data: contentDataBytes),
-        bodyContentLength: UInt64(contentDataBytes.count)
-      )
-      formData.bodyParts.withLock { $0.append(bodyPart) }
+    
+    return parts
+  }
+  
+  private func parsePart(from partData: Data, doubleCrlfData: Data) -> PartData? {
+    guard let headersSeparator = partData.range(of: doubleCrlfData) else { return nil }
+    
+    let headersData = partData[..<headersSeparator.lowerBound]
+    let contentStart = headersSeparator.upperBound
+    let contentData = partData[contentStart...]
+    
+    guard let headers = parseHeaders(from: headersData) else { return nil }
+    
+    return PartData(headers: headers, content: Data(contentData))
+  }
+  
+  private func parseHeaders(from headersData: Data) -> HTTPHeaders? {
+    guard let headersString = String(data: headersData, encoding: .utf8) else { return nil }
+    
+    var headers = HTTPHeaders()
+    let headerLines = headersString.components(separatedBy: "\r\n")
+    
+    for line in headerLines {
+      let headerParts = line.split(separator: ":", maxSplits: 1).map(String.init)
+      guard headerParts.count == 2 else { continue }
+      
+      let key = headerParts[0].trimmingCharacters(in: .whitespaces)
+      let value = headerParts[1].trimmingCharacters(in: .whitespaces)
+      headers[key] = value
     }
-
-    return formData
+    
+    return headers
+  }
+  
+  private func createBodyPart(from part: PartData) throws -> FormData.BodyPart {
+    return FormData.BodyPart(
+      headers: part.headers,
+      bodyStream: InputStream(data: part.content),
+      bodyContentLength: UInt64(part.content.count)
+    )
   }
 }
+
+private struct PartData {
+  let headers: HTTPHeaders
+  let content: Data
+}
+
+// MARK: - Errors
 
 /// Errors that can occur during FormData operations.
 ///
@@ -478,12 +572,12 @@ extension FormData {
 struct FormDataError: LocalizedError {
   var errorDescription: String?
   let underlyingError: Error?
-
+  
   init(_ message: String, underlyingError: Error? = nil) {
     self.errorDescription = message
     self.underlyingError = underlyingError
   }
-
+  
   /// The Content-Type header is missing the required boundary parameter
   static let missingBoundary = FormDataError(
     "The Content-Type header is missing the required boundary parameter")
@@ -495,77 +589,79 @@ struct FormDataError: LocalizedError {
     "The multipart structure is malformed or doesn't follow RFC 2388")
 }
 
+// MARK: - MIME Type Extensions
+
 #if canImport(UniformTypeIdentifiers)
-  import UniformTypeIdentifiers
+import UniformTypeIdentifiers
 
-  #if canImport(CoreServices)
-    import CoreServices
-  #endif
+#if canImport(CoreServices)
+import CoreServices
+#endif
 
-  #if canImport(MobileCoreServices)
-    import MobileCoreServices
-  #endif
+#if canImport(MobileCoreServices)
+import MobileCoreServices
+#endif
 
-  extension FormData {
-    /// Determines the MIME type based on the file extension.
-    ///
-    /// This method uses the system's type identification services to determine
-    /// the appropriate MIME type for a given file extension. It prefers
-    /// UniformTypeIdentifiers on newer platforms, falling back to CoreServices
-    /// or MobileCoreServices on older platforms.
-    ///
-    /// - Parameter pathExtension: The file extension (without the dot)
-    /// - Returns: The MIME type string (defaults to "application/octet-stream")
-    ///
-    /// Example:
-    /// ```swift
-    /// let mimeType = FormData.mimeType(forPathExtension: "jpg")
-    /// // Returns "image/jpeg"
-    /// ```
-    package static func mimeType(forPathExtension pathExtension: String) -> String {
-      if #available(iOS 14, macOS 11, tvOS 14, watchOS 7, visionOS 1, *) {
-        return UTType(filenameExtension: pathExtension)?.preferredMIMEType
-          ?? "application/octet-stream"
-      } else {
-        if let id = UTTypeCreatePreferredIdentifierForTag(
-          kUTTagClassFilenameExtension,
-          pathExtension as CFString,
-          nil
-        )?.takeRetainedValue(),
-          let contentType = UTTypeCopyPreferredTagWithClass(id, kUTTagClassMIMEType)?
-            .takeRetainedValue()
-        {
-          return contentType as String
-        }
-
-        return "application/octet-stream"
+extension FormData {
+  /// Determines the MIME type based on the file extension.
+  ///
+  /// This method uses the system's type identification services to determine
+  /// the appropriate MIME type for a given file extension. It prefers
+  /// UniformTypeIdentifiers on newer platforms, falling back to CoreServices
+  /// or MobileCoreServices on older platforms.
+  ///
+  /// - Parameter pathExtension: The file extension (without the dot)
+  /// - Returns: The MIME type string (defaults to "application/octet-stream")
+  ///
+  /// Example:
+  /// ```swift
+  /// let mimeType = FormData.mimeType(forPathExtension: "jpg")
+  /// // Returns "image/jpeg"
+  /// ```
+  package static func mimeType(forPathExtension pathExtension: String) -> String {
+    if #available(iOS 14, macOS 11, tvOS 14, watchOS 7, visionOS 1, *) {
+      return UTType(filenameExtension: pathExtension)?.preferredMIMEType
+        ?? "application/octet-stream"
+    } else {
+      if let id = UTTypeCreatePreferredIdentifierForTag(
+        kUTTagClassFilenameExtension,
+        pathExtension as CFString,
+        nil
+      )?.takeRetainedValue(),
+         let contentType = UTTypeCopyPreferredTagWithClass(id, kUTTagClassMIMEType)?
+           .takeRetainedValue()
+      {
+        return contentType as String
       }
-    }
-  }
-#else
-  extension FormData {
-    /// Determines the MIME type based on the file extension.
-    ///
-    /// This fallback implementation is used on platforms where UniformTypeIdentifiers
-    /// is not available. It uses CoreServices or MobileCoreServices when available.
-    ///
-    /// - Parameter pathExtension: The file extension (without the dot)
-    /// - Returns: The MIME type string (defaults to "application/octet-stream")
-    package static func mimeType(forPathExtension pathExtension: String) -> String {
-      #if canImport(CoreServices) || canImport(MobileCoreServices)
-        if let id = UTTypeCreatePreferredIdentifierForTag(
-          kUTTagClassFilenameExtension,
-          pathExtension as CFString,
-          nil
-        )?.takeRetainedValue(),
-          let contentType = UTTypeCopyPreferredTagWithClass(id, kUTTagClassMIMEType)?
-            .takeRetainedValue()
-        {
-          return contentType as String
-        }
-      #endif
-
+      
       return "application/octet-stream"
     }
   }
+}
+#else
+extension FormData {
+  /// Determines the MIME type based on the file extension.
+  ///
+  /// This fallback implementation is used on platforms where UniformTypeIdentifiers
+  /// is not available. It uses CoreServices or MobileCoreServices when available.
+  ///
+  /// - Parameter pathExtension: The file extension (without the dot)
+  /// - Returns: The MIME type string (defaults to "application/octet-stream")
+  package static func mimeType(forPathExtension pathExtension: String) -> String {
+    #if canImport(CoreServices) || canImport(MobileCoreServices)
+    if let id = UTTypeCreatePreferredIdentifierForTag(
+      kUTTagClassFilenameExtension,
+      pathExtension as CFString,
+      nil
+    )?.takeRetainedValue(),
+       let contentType = UTTypeCopyPreferredTagWithClass(id, kUTTagClassMIMEType)?
+         .takeRetainedValue()
+    {
+      return contentType as String
+    }
+    #endif
+    
+    return "application/octet-stream"
+  }
+}
 #endif
