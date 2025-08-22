@@ -66,8 +66,13 @@ let json = try await response.json()
 import Fetch
 
 // Download a file
-let response = try await fetch("https://example.com/file.zip") {
-    $0.download = true
+let response = try await fetch.download("https://example.com/file.zip")
+let data = await response.blob()
+
+// Download with custom options
+let response = try await fetch.download("https://example.com/file.zip") {
+    $0.timeoutInterval = 30.0
+    $0.headers["User-Agent"] = "MyApp/1.0"
 }
 let data = await response.blob()
 ```
@@ -101,6 +106,8 @@ let response = try await fetch("https://api.example.com/upload") {
     $0.body = formData
 }
 ```
+
+
 
 ### Custom Headers
 
@@ -173,6 +180,18 @@ let response = try await fetch("https://api.example.com/files") {
     $0.method = .post
     $0.headers["Authorization"] = "Bearer \(token)"
     $0.body = fileURL  // Automatically handles file upload
+}
+
+// Download with timeout and error handling
+let response = try await fetch.download("https://example.com/large-file.zip") {
+    $0.timeoutInterval = 300.0 // 5 minutes for large files
+    $0.headers["User-Agent"] = "MyApp/2.0"
+}
+
+// Handle response
+if response.status == 200 {
+    let data = await response.blob()
+    // Process downloaded data
 }
 ```
 

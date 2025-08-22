@@ -63,6 +63,57 @@ extension Fetch {
   public func callAsFunction(_ urlString: String) async throws -> Response {
     try await self(urlString, options: { _ in })
   }
+
+  /// Makes a download request to the specified URL.
+  ///
+  /// - Parameters:
+  ///   - url: The URL to make the request to
+  ///   - builder: A closure that configures the request options
+  /// - Returns: A `Response` object containing the server's response
+  /// - Throws: An error if the request fails or cannot be completed
+  ///
+  /// Example:
+  /// ```swift
+  /// let response = try await fetch.download("https://example.com/file.zip")
+  /// let fileURL = response.location // The file URL where the response was downloaded to
+  /// let data = await response.blob() // The response body as a blob
+  /// ```
+  public func download(
+    _ url: URL,
+    options builder: (inout FetchOptions) -> Void = { _ in }
+  ) async throws -> Response {
+    try await self(
+      url,
+      options: {
+        builder(&$0)
+        assert(
+          $0.body == nil,
+          "Download requests should not have a body."
+        )
+
+        $0.download = true
+      })
+  }
+
+  /// Makes a download request to the specified URL string.
+  ///
+  /// - Parameters:
+  ///   - urlString: The URL string to make the request to
+  ///   - builder: A closure that configures the request options
+  /// - Returns: A `Response` object containing the server's response
+  /// - Throws: An error if the request fails or cannot be completed
+  ///
+  /// Example:
+  /// ```swift
+  /// let response = try await fetch.download("https://example.com/file.zip")
+  /// let fileURL = response.location // The file URL where the response was downloaded to
+  /// let data = await response.blob() // The response body as a blob
+  public func download(
+    _ urlString: String,
+    options builder: (inout FetchOptions) -> Void = { _ in }
+  ) async throws -> Response {
+    try await download(URL(string: urlString)!, options: builder)
+  }
 }
 
 /// A type-safe representation of HTTP methods.
@@ -159,7 +210,7 @@ public struct FetchOptions: Sendable {
   /// ```
   ///
   /// - Note: Download requests should not have a body.
-  public var download: Bool
+  var download: Bool = false
 
   /// Creates a new `FetchOptions` instance with the specified parameters.
   ///
@@ -176,14 +227,12 @@ public struct FetchOptions: Sendable {
     body: (any Sendable)? = nil,
     cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
     timeoutInterval: TimeInterval = 60.0,
-    download: Bool = false
   ) {
     self.method = method
     self.headers = headers
     self.body = body
     self.cachePolicy = cachePolicy
     self.timeoutInterval = timeoutInterval
-    self.download = download
   }
 }
 
