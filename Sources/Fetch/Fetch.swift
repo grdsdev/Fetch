@@ -160,6 +160,55 @@ public struct HTTPMethod: RawRepresentable, Sendable {
   public var rawValue: String
 }
 
+/// A struct representing the progress of a request.
+///
+/// This struct is used to track the progress of a request, including the number of bytes processed and the total number of bytes expected.
+/// For upload requests, `bytesProcessed` represents bytes sent to the server.
+/// For download requests, `bytesProcessed` represents bytes received from the server.
+///
+/// Example:
+/// ```swift
+/// let progress = Progress(bytesProcessed: 100, totalBytesExpected: 1000)
+/// print(progress.fractionCompleted) // 0.1
+/// print(progress.bytesSent) // 100 (for uploads)
+/// print(progress.bytesReceived) // 100 (for downloads)
+/// ```
+public struct Progress: Sendable {
+  /// The number of bytes processed so far.
+  /// For uploads, this represents bytes sent to the server.
+  /// For downloads, this represents bytes received from the server.
+  public let bytesProcessed: Int64
+  /// The total number of bytes expected to be processed.
+  public let totalBytesExpected: Int64
+
+  /// The number of bytes sent so far.
+  /// This is a convenience property that returns `bytesProcessed` for upload scenarios.
+  public var bytesSent: Int64 {
+    bytesProcessed
+  }
+
+  /// The number of bytes received so far.
+  /// This is a convenience property that returns `bytesProcessed` for download scenarios.
+  public var bytesReceived: Int64 {
+    bytesProcessed
+  }
+
+  /// The fraction of the request that has been completed.
+  public var fractionCompleted: Double {
+    guard totalBytesExpected != NSURLSessionTransferSizeUnknown && totalBytesExpected > 0 else {
+      return 0.0
+    }
+    return Double(bytesProcessed) / Double(totalBytesExpected)
+  }
+
+  public init(bytesProcessed: Int64, totalBytesExpected: Int64) {
+    self.bytesProcessed = bytesProcessed
+    self.totalBytesExpected = totalBytesExpected
+  }
+}
+
+public typealias ProgressHandler = @Sendable (Progress) -> Void
+
 /// Configuration options for HTTP requests made with the Fetch API.
 ///
 /// Use `FetchOptions` to customize various aspects of your HTTP request,
@@ -211,6 +260,22 @@ public struct FetchOptions: Sendable {
   ///
   /// - Note: Download requests should not have a body.
   var download: Bool = false
+
+  /// The progress handler to use for the upload request (default: nil).
+  ///
+  /// The progress handler is called with the progress of the upload request.
+  /// 
+  /// **Note**: Progress callbacks are called on URLSession's delegate queue, not the main queue.
+  /// For UI updates, use `Task { @MainActor in ... }` or ensure your handler is `@MainActor`.
+  public var uploadProgressHandler: ProgressHandler?
+
+  /// The progress handler to use for the download request (default: nil).
+  ///
+  /// The progress handler is called with the progress of the download request.
+  ///
+  /// **Note**: Progress callbacks are called on URLSession's delegate queue, not the main queue.
+  /// For UI updates, use `Task { @MainActor in ... }` or ensure your handler is `@MainActor`.
+  public var downloadProgressHandler: ProgressHandler?
 
   /// Creates a new `FetchOptions` instance with the specified parameters.
   ///
@@ -393,7 +458,9 @@ public actor FetchClient: Fetch {
         return try await dataLoader.startUploadTask(
           task,
           session: session,
-          delegate: nil
+          delegate: nil,
+          uploadProgressHandler: options.uploadProgressHandler,
+          downloadProgressHandler: options.downloadProgressHandler
         )
       } else {
         let uploadData = try encode(body, in: &urlRequest)
@@ -401,7 +468,9 @@ public actor FetchClient: Fetch {
         return try await dataLoader.startUploadTask(
           task,
           session: session,
-          delegate: nil
+          delegate: nil,
+          uploadProgressHandler: options.uploadProgressHandler,
+          downloadProgressHandler: options.downloadProgressHandler
         )
       }
     } else if options.download {
@@ -410,7 +479,8 @@ public actor FetchClient: Fetch {
       return try await dataLoader.startDownloadTask(
         task,
         session: session,
-        delegate: nil
+        delegate: nil,
+        downloadProgressHandler: options.downloadProgressHandler
       )
     } else {
       // If not a download, nor we have a body, we use a data task.
@@ -418,7 +488,9 @@ public actor FetchClient: Fetch {
       return try await dataLoader.startDataTask(
         task,
         session: session,
-        delegate: nil
+        delegate: nil,
+        uploadProgressHandler: options.uploadProgressHandler,
+        downloadProgressHandler: options.downloadProgressHandler
       )
     }
   }

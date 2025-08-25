@@ -54,8 +54,6 @@ struct FetchTests {
     #expect(text.contains("quia et suscipit"))
   }
 
-
-  
   @Test func downloadFileWithNewMethod() async throws {
     let response = try await fetch.download(
       "https://github.com/grdsdev/Fetch/archive/refs/heads/main.zip"
@@ -63,7 +61,7 @@ struct FetchTests {
     #expect(response.status == 200)
     #expect(await response.blob().count > 0)
   }
-  
+
   @Test func downloadFileWithOptions() async throws {
     let response = try await fetch.download(
       "https://httpbin.org/get"
@@ -72,13 +70,13 @@ struct FetchTests {
       $0.headers["X-Custom-Header"] = "test-value"
     }
     #expect(response.status == 200)
-    
+
     // Verify the custom header was sent
     let json = try await response.json() as! [String: Any]
     let headers = json["headers"] as! [String: Any]
     #expect(headers["X-Custom-Header"] as? String == "test-value")
   }
-  
+
   @Test func downloadFileWithInvalidURL() async throws {
     do {
       _ = try await fetch.download("invalid-url") { _ in }
@@ -126,7 +124,7 @@ struct FetchTests {
   @Test func testFetchWithLargeFormDataOptimization() async throws {
     // Test that large FormData triggers optimization
     let formData = FormData()
-    let largeData = Data(repeating: 0x42, count: 11_000_000) // 11MB, exceeds 10MB threshold
+    let largeData = Data(repeating: 0x42, count: 11_000_000)  // 11MB, exceeds 10MB threshold
     formData.append("large", largeData)
 
     #expect(formData.contentLength > FormData.encodingMemoryThreshold)
@@ -137,11 +135,45 @@ struct FetchTests {
   @Test func testFetchWithSmallFormDataNoOptimization() async throws {
     // Test that small FormData doesn't trigger optimization
     let formData = FormData()
-    let smallData = Data(repeating: 0x42, count: 1_000_000) // 1MB, below 10MB threshold
+    let smallData = Data(repeating: 0x42, count: 1_000_000)  // 1MB, below 10MB threshold
     formData.append("small", smallData)
 
     #expect(formData.contentLength < FormData.encodingMemoryThreshold)
     let encoded = try formData.encode()
     #expect(!encoded.isEmpty)
+  }
+
+  @Test func testFetchWithProgressHandler() async throws {
+    let response = try await fetch("https://httpbin.org/get") {
+      $0.method = .get
+      $0.downloadProgressHandler = { progress in
+        // Check that progress values are reasonable
+        #expect(progress.bytesReceived >= 0)
+        #expect(progress.fractionCompleted >= 0.0)
+        #expect(progress.fractionCompleted <= 1.0)
+        // For most HTTP responses, we should get some data
+        if progress.totalBytesExpected > 0 {
+          #expect(progress.bytesReceived <= progress.totalBytesExpected)
+        }
+      }
+    }
+
+    #expect(response.status == 200)
+  }
+
+  @Test func testFetchWithUploadProgressHandler() async throws {
+    let testData = Data(repeating: 65, count: 100) // 100 bytes of 'A'
+    let response = try await fetch("https://httpbin.org/post") {
+      $0.method = .post
+      $0.body = testData
+      $0.uploadProgressHandler = { progress in
+        // Allow for some variance due to HTTP headers and protocol overhead
+        #expect(progress.bytesSent >= 100)
+        #expect(progress.fractionCompleted >= 0.0)
+        #expect(progress.fractionCompleted <= 1.0)
+      }
+    }
+
+    #expect(response.status == 200)
   }
 }
