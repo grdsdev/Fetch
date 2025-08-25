@@ -143,34 +143,120 @@ struct FetchTests {
     #expect(!encoded.isEmpty)
   }
 
-  @Test func testFetchWithProgressHandler() async throws {
-    let response = try await fetch("https://httpbin.org/get") {
-      $0.method = .get
+  // MARK: - Progress Tests
+
+  @Test func testDownloadProgress() async throws {
+    let progressCalled = Mutex(false)
+
+    let response = try await fetch.download("https://httpbin.org/bytes/10000") {
       $0.downloadProgressHandler = { progress in
-        // Check that progress values are reasonable
+        progressCalled.withLock { $0 = true }
+
+        // Validate progress values
         #expect(progress.bytesReceived >= 0)
+        #expect(progress.bytesProcessed >= 0)
         #expect(progress.fractionCompleted >= 0.0)
         #expect(progress.fractionCompleted <= 1.0)
-        // For most HTTP responses, we should get some data
-        if progress.totalBytesExpected > 0 {
-          #expect(progress.bytesReceived <= progress.totalBytesExpected)
-        }
+        #expect(progress.bytesReceived == progress.bytesProcessed)
       }
     }
 
     #expect(response.status == 200)
+    #expect(progressCalled.withLock { $0 }, "Should have progress updates")
+
+    let data = await response.blob()
+    #expect(data.count >= 10000)
   }
 
-  @Test func testFetchWithUploadProgressHandler() async throws {
-    let testData = Data(repeating: 65, count: 100) // 100 bytes of 'A'
+  @Test func testUploadProgress() async throws {
+    let testData = Data(repeating: 65, count: 10000)  // 10KB
+    let progressCalled = Mutex(false)
+
     let response = try await fetch("https://httpbin.org/post") {
       $0.method = .post
       $0.body = testData
       $0.uploadProgressHandler = { progress in
-        // Allow for some variance due to HTTP headers and protocol overhead
-        #expect(progress.bytesSent >= 100)
+        progressCalled.withLock { $0 = true }
+
+        #expect(progress.bytesSent >= 0)
+        #expect(progress.bytesProcessed >= 0)
         #expect(progress.fractionCompleted >= 0.0)
         #expect(progress.fractionCompleted <= 1.0)
+        #expect(progress.bytesSent == progress.bytesProcessed)
+      }
+    }
+
+    #expect(response.status == 200)
+    #expect(progressCalled.withLock { $0 }, "Should have upload progress")
+  }
+
+  @Test func testFileUploadProgress() async throws {
+    let tempDir = FileManager.default.temporaryDirectory
+    let tempFile = tempDir.appendingPathComponent("test_\(UUID().uuidString).txt")
+    let content = String(repeating: "test ", count: 2500)  // ~10KB
+    try content.write(to: tempFile, atomically: true, encoding: .utf8)
+
+    defer { try? FileManager.default.removeItem(at: tempFile) }
+
+    let progressCalled = Mutex(false)
+    let maxBytesSent = Mutex(Int64(0))
+
+    let response = try await fetch("https://httpbin.org/post") {
+      $0.method = .post
+      $0.body = tempFile
+      $0.uploadProgressHandler = { progress in
+        progressCalled.withLock { $0 = true }
+        maxBytesSent.withLock { $0 = max($0, progress.bytesSent) }
+        #expect(progress.bytesSent >= 0)
+        #expect(progress.fractionCompleted >= 0.0)
+        #expect(progress.fractionCompleted <= 1.0)
+      }
+    }
+
+    #expect(response.status == 200)
+    #expect(progressCalled.withLock { $0 }, "File upload should have progress")
+    #expect(maxBytesSent.withLock { $0 } >= 10000, "Should have sent significant data")
+  }
+
+  @Test func testCombinedProgress() async throws {
+    let uploadData = Data(repeating: 68, count: 5000)
+    let uploadProgressCalled = Mutex(false)
+    let downloadProgressCalled = Mutex(false)
+
+    let response = try await fetch("https://httpbin.org/post") {
+      $0.method = .post
+      $0.body = uploadData
+      $0.uploadProgressHandler = { progress in
+        uploadProgressCalled.withLock { $0 = true }
+        #expect(progress.bytesSent >= 0)
+      }
+      $0.downloadProgressHandler = { progress in
+        downloadProgressCalled.withLock { $0 = true }
+        #expect(progress.bytesReceived >= 0)
+      }
+    }
+
+    #expect(response.status == 200)
+    #expect(uploadProgressCalled.withLock { $0 }, "Should have upload progress")
+    #expect(downloadProgressCalled.withLock { $0 }, "Should have download progress")
+  }
+
+  @Test func testProgressPropertyConsistency() async throws {
+    let testData = Data(repeating: 69, count: 1000)
+
+    let response = try await fetch("https://httpbin.org/post") {
+      $0.method = .post
+      $0.body = testData
+      $0.uploadProgressHandler = { progress in
+        // Test convenience properties
+        #expect(progress.bytesSent == progress.bytesProcessed)
+        #expect(progress.bytesReceived == progress.bytesProcessed)
+
+        // Test fraction calculation
+        if progress.totalBytesExpected > 0 {
+          let expected = Double(progress.bytesProcessed) / Double(progress.totalBytesExpected)
+          #expect(abs(progress.fractionCompleted - expected) < 0.001)
+        }
       }
     }
 
