@@ -264,7 +264,7 @@ public struct FetchOptions: Sendable {
   /// The progress handler to use for the upload request (default: nil).
   ///
   /// The progress handler is called with the progress of the upload request.
-  /// 
+  ///
   /// **Note**: Progress callbacks are called on URLSession's delegate queue, not the main queue.
   /// For UI updates, use `Task { @MainActor in ... }` or ensure your handler is `@MainActor`.
   public var uploadProgressHandler: ProgressHandler?
