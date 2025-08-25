@@ -39,12 +39,16 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
   func startDataTask(
     _ task: URLSessionDataTask,
     session: URLSession,
-    delegate: URLSessionDataDelegate?
+    delegate: URLSessionDataDelegate?,
+    uploadProgressHandler: ProgressHandler?,
+    downloadProgressHandler: ProgressHandler?
   ) async throws -> Response {
     try await withTaskCancellationHandler(
       operation: {
         try await withUnsafeThrowingContinuation { continuation in
-          let handler = DataTaskHandler(delegate: delegate)
+          let handler = DataTaskHandler(
+            delegate: delegate, uploadProgressHandler: uploadProgressHandler,
+            downloadProgressHandler: downloadProgressHandler)
           handler.completion = { continuation.resume(with: $0) }
           self.handlers[task] = handler
 
@@ -60,12 +64,15 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
   func startDownloadTask(
     _ task: URLSessionDownloadTask,
     session: URLSession,
-    delegate: URLSessionDownloadDelegate?
+    delegate: URLSessionDownloadDelegate?,
+    downloadProgressHandler: ProgressHandler?
   ) async throws -> Response {
     try await withTaskCancellationHandler(
       operation: {
         try await withUnsafeThrowingContinuation { continuation in
-          let handler = DownloadTaskHandler(delegate: delegate)
+          let handler = DownloadTaskHandler(
+            delegate: delegate, uploadProgressHandler: nil,
+            downloadProgressHandler: downloadProgressHandler)
           handler.completion = { continuation.resume(with: $0) }
           self.handlers[task] = handler
 
@@ -81,12 +88,16 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
   func startUploadTask(
     _ task: URLSessionUploadTask,
     session: URLSession,
-    delegate: URLSessionTaskDelegate?
+    delegate: URLSessionTaskDelegate?,
+    uploadProgressHandler: ProgressHandler?,
+    downloadProgressHandler: ProgressHandler?
   ) async throws -> Response {
     try await withTaskCancellationHandler(
       operation: {
         try await withUnsafeThrowingContinuation { continuation in
-          let handler = DataTaskHandler(delegate: delegate)
+          let handler = DataTaskHandler(
+            delegate: delegate, uploadProgressHandler: uploadProgressHandler,
+            downloadProgressHandler: downloadProgressHandler)
           handler.completion = { continuation.resume(with: $0) }
           self.handlers[task] = handler
 
@@ -342,6 +353,14 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
     totalBytesExpectedToSend: Int64
   ) {
     let handler = handlers[task]
+    if let handler = handler as? DataTaskHandler,
+      let progressHandler = handler.uploadProgressHandler
+    {
+      let progress = Progress(
+        bytesProcessed: totalBytesSent, totalBytesExpected: totalBytesExpectedToSend)
+      progressHandler(progress)
+    }
+
     #if os(Linux)
       handler?.delegate?.urlSession(
         session,
@@ -426,7 +445,18 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
     if handler.body == nil {
       handler.body = .init()
     }
+
+    handler.receivedBytes += Int64(data.count)
     handler.body!.yield(data)
+
+    if let progressHandler = handler.downloadProgressHandler {
+      let progress = Progress(
+        bytesProcessed: handler.receivedBytes,
+        totalBytesExpected: dataTask.response?.expectedContentLength
+          ?? NSURLSessionTransferSizeUnknown
+      )
+      progressHandler(progress)
+    }
   }
 
   #if !os(Linux)
@@ -528,8 +558,19 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
     totalBytesWritten: Int64,
     totalBytesExpectedToWrite: Int64
   ) {
+    let handler = handlers[downloadTask] as? DownloadTaskHandler
+    if let handler = handler,
+      let progressHandler = handler.downloadProgressHandler
+    {
+      let progress = Progress(
+        bytesProcessed: totalBytesWritten,
+        totalBytesExpected: totalBytesExpectedToWrite
+      )
+      progressHandler(progress)
+    }
+
     #if os(Linux)
-      (handlers[downloadTask] as? DownloadTaskHandler)?.downloadDelegate?.urlSession(
+      handler?.downloadDelegate?.urlSession(
         session,
         downloadTask: downloadTask,
         didWriteData: bytesWritten,
@@ -544,7 +585,7 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
         totalBytesExpectedToWrite: totalBytesExpectedToWrite
       )
     #else
-      (handlers[downloadTask] as? DownloadTaskHandler)?.downloadDelegate?.urlSession?(
+      handler?.downloadDelegate?.urlSession?(
         session,
         downloadTask: downloadTask,
         didWriteData: bytesWritten,
@@ -603,8 +644,16 @@ private class TaskHandler {
   let delegate: URLSessionTaskDelegate?
   var metrics: URLSessionTaskMetrics?
 
-  init(delegate: URLSessionTaskDelegate?) {
+  var uploadProgressHandler: ProgressHandler?
+  var downloadProgressHandler: ProgressHandler?
+
+  init(
+    delegate: URLSessionTaskDelegate?, uploadProgressHandler: ProgressHandler?,
+    downloadProgressHandler: ProgressHandler?
+  ) {
     self.delegate = delegate
+    self.uploadProgressHandler = uploadProgressHandler
+    self.downloadProgressHandler = downloadProgressHandler
   }
 }
 
@@ -615,10 +664,16 @@ private final class DataTaskHandler: TaskHandler {
   var completion: Completion?
 
   var body: Response.Body?
+  var receivedBytes: Int64 = 0
 
-  override init(delegate: URLSessionTaskDelegate?) {
+  override init(
+    delegate: URLSessionTaskDelegate?, uploadProgressHandler: ProgressHandler?,
+    downloadProgressHandler: ProgressHandler?
+  ) {
     self.dataDelegate = delegate as? URLSessionDataDelegate
-    super.init(delegate: delegate)
+    super.init(
+      delegate: delegate, uploadProgressHandler: uploadProgressHandler,
+      downloadProgressHandler: downloadProgressHandler)
   }
 }
 
@@ -629,9 +684,14 @@ private final class DownloadTaskHandler: TaskHandler {
   var completion: Completion?
   var location: URL?
 
-  init(delegate: URLSessionDownloadDelegate?) {
+  init(
+    delegate: URLSessionDownloadDelegate?, uploadProgressHandler: ProgressHandler?,
+    downloadProgressHandler: ProgressHandler?
+  ) {
     self.downloadDelegate = delegate
-    super.init(delegate: delegate)
+    super.init(
+      delegate: delegate, uploadProgressHandler: uploadProgressHandler,
+      downloadProgressHandler: downloadProgressHandler)
   }
 }
 
