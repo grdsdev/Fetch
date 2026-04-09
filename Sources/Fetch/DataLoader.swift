@@ -12,8 +12,8 @@ import Foundation
 public let downloadChunkSize = 4096
 
 // A simple URLSession wrapper adding async/await APIs compatible with older platforms.
-final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDelegate, @unchecked
-  Sendable
+final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDelegate,
+  @unchecked Sendable
 {
   private let handlers = TaskHandlersDictionary()
 
@@ -275,7 +275,8 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
     _ session: URLSession,
     task: URLSessionTask,
     didReceive challenge: URLAuthenticationChallenge,
-    completionHandler: @Sendable @escaping (URLSession.AuthChallengeDisposition, URLCredential?) ->
+    completionHandler:
+      @Sendable @escaping (URLSession.AuthChallengeDisposition, URLCredential?) ->
       Void
   ) {
     #if os(Linux)
@@ -313,7 +314,8 @@ final class DataLoader: NSObject, URLSessionDataDelegate, URLSessionDownloadDele
     _ session: URLSession,
     task: URLSessionTask,
     willBeginDelayedRequest request: URLRequest,
-    completionHandler: @Sendable @escaping (URLSession.DelayedRequestDisposition, URLRequest?) ->
+    completionHandler:
+      @Sendable @escaping (URLSession.DelayedRequestDisposition, URLRequest?) ->
       Void
   ) {
     #if os(Linux)
@@ -710,18 +712,14 @@ extension Optional: OptionalDecoding {}
 /// called outside of the session's delegate queue, which means that the access
 /// needs to be synchronized.
 private final class TaskHandlersDictionary {
-  private let handlers = Mutex([URLSessionTask: TaskHandler]())
+  private var handlers: [URLSessionTask: TaskHandler] = [:]
 
   subscript(task: URLSessionTask) -> TaskHandler? {
     get {
-      handlers.withLock {
-        $0[task]
-      }
+      handlers[task]
     }
     set {
-      handlers.withLock {
-        $0[task] = newValue
-      }
+      handlers[task] = newValue
     }
   }
 }

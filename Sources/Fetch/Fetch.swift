@@ -29,7 +29,8 @@ public protocol Fetch: Sendable {
   ///   - builder: A closure that configures the request options
   /// - Returns: A `Response` object containing the server's response
   /// - Throws: An error if the request fails or cannot be completed
-  func callAsFunction(_ url: URL, options builder: (inout FetchOptions) -> Void) async throws
+  func callAsFunction(_ url: URL, options builder: sending (inout FetchOptions) -> Void)
+    async throws
     -> Response
 }
 extension Fetch {
@@ -40,7 +41,7 @@ extension Fetch {
   ///   - builder: A closure that configures the request options
   /// - Returns: A `Response` object containing the server's response
   /// - Throws: An error if the URL is invalid or the request fails
-  public func callAsFunction(_ urlString: String, options builder: (inout FetchOptions) -> Void)
+  public func callAsFunction(_ urlString: String, options builder: sending (inout FetchOptions) -> Void)
     async throws -> Response
   {
     try await self(URL(string: urlString)!, options: builder)
@@ -80,7 +81,7 @@ extension Fetch {
   /// ```
   public func download(
     _ url: URL,
-    options builder: (inout FetchOptions) -> Void = { _ in }
+    options builder: sending (inout FetchOptions) -> Void = { _ in }
   ) async throws -> Response {
     try await self(
       url,
@@ -110,7 +111,7 @@ extension Fetch {
   /// let data = await response.blob() // The response body as a blob
   public func download(
     _ urlString: String,
-    options builder: (inout FetchOptions) -> Void = { _ in }
+    options builder: sending (inout FetchOptions) -> Void = { _ in }
   ) async throws -> Response {
     try await download(URL(string: urlString)!, options: builder)
   }
@@ -433,7 +434,7 @@ public actor FetchClient: Fetch {
   /// ```
   public func callAsFunction(
     _ url: URL,
-    options builder: (inout FetchOptions) -> Void = { _ in }
+    options builder: sending (inout FetchOptions) -> Void = { _ in }
   ) async throws -> Response {
     var urlRequest = URLRequest(url: url)
     var options = FetchOptions()

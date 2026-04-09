@@ -31,7 +31,7 @@ struct FormDataTests {
   // MARK: - String Value Tests
 
   @Test func testAppendString() throws {
-    let formData = FormData()
+    var formData = FormData()
     formData.append("username", "john_doe")
 
     let encoded = try formData.encode()
@@ -43,7 +43,7 @@ struct FormDataTests {
   }
 
   @Test func testAppendStringWithFilename() throws {
-    let formData = FormData()
+    var formData = FormData()
     formData.append("file", "content", filename: "test.txt")
 
     let encoded = try formData.encode()
@@ -52,7 +52,7 @@ struct FormDataTests {
   }
 
   @Test func testAppendStringWithContentType() throws {
-    let formData = FormData()
+    var formData = FormData()
     formData.append("data", "content", contentType: "text/plain")
 
     let encoded = try formData.encode()
@@ -64,7 +64,7 @@ struct FormDataTests {
 
   @Test func testAppendData() throws {
     let testData = "Hello, World!".data(using: .utf8)!
-    let formData = FormData()
+    var formData = FormData()
     formData.append("binary", testData)
 
     let encoded = try formData.encode()
@@ -76,7 +76,7 @@ struct FormDataTests {
 
   @Test func testAppendDataWithFilenameAndContentType() throws {
     let testData = "Binary content".data(using: .utf8)!
-    let formData = FormData()
+    var formData = FormData()
     formData.append("file", testData, filename: "data.bin", contentType: "application/octet-stream")
 
     let encoded = try formData.encode()
@@ -93,7 +93,7 @@ struct FormDataTests {
     try "Test file content".write(to: tempURL, atomically: true, encoding: .utf8)
     defer { try? FileManager.default.removeItem(at: tempURL) }
 
-    let formData = FormData()
+    var formData = FormData()
     formData.append("file", tempURL)
 
     let encoded = try formData.encode()
@@ -109,7 +109,7 @@ struct FormDataTests {
     try "Original content".write(to: tempURL, atomically: true, encoding: .utf8)
     defer { try? FileManager.default.removeItem(at: tempURL) }
 
-    let formData = FormData()
+    var formData = FormData()
     formData.append("file", tempURL, filename: "custom.txt")
 
     let encoded = try formData.encode()
@@ -118,7 +118,7 @@ struct FormDataTests {
   }
 
   @Test func testAppendInvalidURL() {
-    let formData = FormData()
+    var formData = FormData()
     let invalidURL = URL(string: "https://example.com/file.txt")!
 
     formData.append("file", invalidURL)
@@ -139,7 +139,7 @@ struct FormDataTests {
     params.append("key1", value: "value1")
     params.append("key2", value: "value2")
 
-    let formData = FormData()
+    var formData = FormData()
     formData.append("params", params)
 
     let encoded = try formData.encode()
@@ -157,7 +157,7 @@ struct FormDataTests {
     }
 
     let testObject = TestStruct(name: "John", age: 30)
-    let formData = FormData()
+    var formData = FormData()
     formData.append("user", testObject)
 
     let encoded = try formData.encode()
@@ -179,7 +179,7 @@ struct FormDataTests {
     }
 
     let testObject = TestStruct(name: "Jane", age: 25)
-    let formData = FormData()
+    var formData = FormData()
     formData.append("user", testObject)
 
     let encoded = try formData.encode()
@@ -192,7 +192,7 @@ struct FormDataTests {
 
   @Test func testAppendDictionary() throws {
     let dict = ["name": "Alice", "city": "New York"]
-    let formData = FormData()
+    var formData = FormData()
     formData.append("data", dict)
 
     let encoded = try formData.encode()
@@ -203,7 +203,7 @@ struct FormDataTests {
 
   @Test func testAppendArray() throws {
     let array = ["item1", "item2", "item3"]
-    let formData = FormData()
+    var formData = FormData()
     formData.append("items", array)
 
     let encoded = try formData.encode()
@@ -216,7 +216,7 @@ struct FormDataTests {
   // MARK: - Multiple Parts Tests
 
   @Test func testMultipleParts() throws {
-    let formData = FormData()
+    var formData = FormData()
     formData.append("name", "John Doe")
     formData.append("email", "john@example.com")
     formData.append("age", 30)
@@ -229,7 +229,7 @@ struct FormDataTests {
   }
 
   @Test func testMixedContentTypes() throws {
-    let formData = FormData()
+    var formData = FormData()
     formData.append("text", "Hello World")
     formData.append("binary", "Binary data".data(using: .utf8)!, filename: "data.bin")
 
@@ -243,7 +243,7 @@ struct FormDataTests {
   // MARK: - Boundary Tests
 
   @Test func testBoundaryFormat() throws {
-    let formData = FormData()
+    var formData = FormData()
     formData.append("test", "value")
 
     let encoded = try formData.encode()
@@ -257,7 +257,7 @@ struct FormDataTests {
   // MARK: - Error Handling Tests
 
   @Test func testDeferredErrorHandling() {
-    let formData = FormData()
+    var formData = FormData()
 
     // Append with invalid URL (should not throw immediately)
     let invalidURL = URL(string: "https://example.com/file.txt")!
@@ -273,7 +273,7 @@ struct FormDataTests {
   }
 
   @Test func testMultipleErrors() {
-    let formData = FormData()
+    var formData = FormData()
 
     // Add multiple invalid items
     let invalidURL = URL(string: "https://example.com/file.txt")!
@@ -311,7 +311,7 @@ struct FormDataTests {
 
   @Test func testDecodeFormData() throws {
     // Create a simple form data
-    let originalFormData = FormData()
+    var originalFormData = FormData()
     originalFormData.append("name", "Test User")
     originalFormData.append("email", "test@example.com")
 
@@ -339,7 +339,7 @@ struct FormDataTests {
     try "Decode test content".write(to: tempURL, atomically: true, encoding: .utf8)
     defer { try? FileManager.default.removeItem(at: tempURL) }
 
-    let originalFormData = FormData()
+    var originalFormData = FormData()
     originalFormData.append("file", tempURL)
     originalFormData.append("description", "Test file")
 
@@ -389,34 +389,10 @@ struct FormDataTests {
     }
   }
 
-  // MARK: - Thread Safety Tests
-
-  @Test func testConcurrentAppend() async throws {
-    let formData = FormData()
-    let iterations = 100
-
-    await withTaskGroup(of: Void.self) { group in
-      for i in 0..<iterations {
-        group.addTask {
-          formData.append("key\(i)", "value\(i)")
-        }
-      }
-    }
-
-    let encoded = try formData.encode()
-    #expect(!encoded.isEmpty)
-
-    let encodedString = String(data: encoded, encoding: .utf8)!
-    for i in 0..<iterations {
-      #expect(encodedString.contains("key\(i)"))
-      #expect(encodedString.contains("value\(i)"))
-    }
-  }
-
   // MARK: - Performance Tests
 
   @Test func testLargeDataAppend() throws {
-    let formData = FormData()
+    var formData = FormData()
     let largeData = Data(repeating: 0x42, count: 1024 * 1024)  // 1MB
 
     formData.append("large", largeData)
@@ -426,7 +402,7 @@ struct FormDataTests {
   }
 
   @Test func testManySmallParts() throws {
-    let formData = FormData()
+    var formData = FormData()
     let partCount = 1000
 
     for i in 0..<partCount {
@@ -446,7 +422,7 @@ struct FormDataTests {
   // MARK: - writeEncodedData Tests
 
   @Test func testWriteEncodedDataBasic() throws {
-    let formData = FormData()
+    var formData = FormData()
     formData.append("name", "John Doe")
     formData.append("email", "john@example.com")
 
@@ -472,7 +448,7 @@ struct FormDataTests {
     try "File content for testing".write(to: inputURL, atomically: true, encoding: .utf8)
     defer { try? FileManager.default.removeItem(at: inputURL) }
 
-    let formData = FormData()
+    var formData = FormData()
     formData.append("file", inputURL)
     formData.append("description", "Test file upload")
 
@@ -498,7 +474,7 @@ struct FormDataTests {
     try largeContent.write(to: inputURL, atomically: true, encoding: .utf8)
     defer { try? FileManager.default.removeItem(at: inputURL) }
 
-    let formData = FormData()
+    var formData = FormData()
     formData.append("largeFile", inputURL)
     formData.append("metadata", "Large file metadata")
 
@@ -519,7 +495,7 @@ struct FormDataTests {
 
   @Test func testWriteEncodedDataWithBinaryData() throws {
     let binaryData = Data(repeating: 0x42, count: 1024)
-    let formData = FormData()
+    var formData = FormData()
     formData.append(
       "binary", binaryData, filename: "data.bin", contentType: "application/octet-stream")
 
@@ -538,7 +514,7 @@ struct FormDataTests {
   }
 
   @Test func testWriteEncodedDataWithMultipleParts() throws {
-    let formData = FormData()
+    var formData = FormData()
     formData.append("text1", "First text field")
     formData.append("text2", "Second text field")
     formData.append("number", 42)
@@ -580,7 +556,7 @@ struct FormDataTests {
   }
 
   @Test func testWriteEncodedDataFileAlreadyExists() throws {
-    let formData = FormData()
+    var formData = FormData()
     formData.append("test", "value")
 
     let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -600,7 +576,7 @@ struct FormDataTests {
   }
 
   @Test func testWriteEncodedDataInvalidFileURL() {
-    let formData = FormData()
+    var formData = FormData()
     formData.append("test", "value")
 
     let invalidURL = URL(string: "https://example.com/file.txt")!
@@ -615,7 +591,7 @@ struct FormDataTests {
   }
 
   @Test func testWriteEncodedDataWithAppendError() {
-    let formData = FormData()
+    var formData = FormData()
 
     // Add an invalid item that will cause an error during processing
     let invalidURL = URL(string: "https://example.com/file.txt")!
@@ -635,7 +611,7 @@ struct FormDataTests {
 
   @Test func testWriteEncodedDataMemoryEfficiency() throws {
     // Create a large form data to test memory efficiency
-    let formData = FormData()
+    var formData = FormData()
     let largeData = Data(repeating: 0x42, count: 1024 * 1024)  // 1MB
     formData.append("large", largeData)
     formData.append("description", "Large data test")
@@ -656,7 +632,7 @@ struct FormDataTests {
 
   @Test func testWriteEncodedDataWithCustomBoundary() throws {
     let customBoundary = "custom-boundary-123"
-    let formData = FormData(boundary: customBoundary)
+    var formData = FormData(boundary: customBoundary)
     formData.append("test", "value")
 
     let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -682,7 +658,7 @@ struct FormDataTests {
       numbers: [1, 2, 3, 4, 5]
     )
 
-    let formData = FormData()
+    var formData = FormData()
     formData.append("complex", complexData)
     formData.append("simple", "Simple string")
 
@@ -702,7 +678,7 @@ struct FormDataTests {
   }
 
   @Test func testWriteEncodedDataPermissions() throws {
-    let formData = FormData()
+    var formData = FormData()
     formData.append("test", "value")
 
     let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -728,7 +704,7 @@ struct FormDataTests {
 
   @Test func testLargeFormDataContentLength() throws {
     // Create FormData with content that exceeds the threshold
-    let formData = FormData()
+    var formData = FormData()
     let largeData = Data(repeating: 0x42, count: 11_000_000)  // 11MB, exceeds 10MB threshold
     formData.append("large", largeData)
 
@@ -739,7 +715,7 @@ struct FormDataTests {
 
   @Test func testSmallFormDataContentLength() throws {
     // Create FormData with content that doesn't exceed the threshold
-    let formData = FormData()
+    var formData = FormData()
     let smallData = Data(repeating: 0x42, count: 1_000_000)  // 1MB, below 10MB threshold
     formData.append("small", smallData)
 
@@ -750,7 +726,7 @@ struct FormDataTests {
 
   @Test func testFormDataWithMultipleLargeParts() throws {
     // Create FormData with multiple parts that together exceed the threshold
-    let formData = FormData()
+    var formData = FormData()
     let part1 = Data(repeating: 0x41, count: 6_000_000)  // 6MB
     let part2 = Data(repeating: 0x42, count: 5_000_000)  // 5MB
     formData.append("part1", part1)
@@ -769,7 +745,7 @@ struct FormDataTests {
     try largeContent.write(to: tempURL, atomically: true, encoding: .utf8)
     defer { try? FileManager.default.removeItem(at: tempURL) }
 
-    let formData = FormData()
+    var formData = FormData()
     formData.append("largeFile", tempURL)
 
     // Should exceed the threshold due to the large file
@@ -781,7 +757,7 @@ struct FormDataTests {
     _ = FetchClient()  // Create instance to verify it can be instantiated
 
     // Create large FormData that should trigger optimization
-    let formData = FormData()
+    var formData = FormData()
     let largeData = Data(repeating: 0x42, count: 11_000_000)  // 11MB
     formData.append("large", largeData)
     formData.append("description", "Large data test")
@@ -805,7 +781,7 @@ struct FormDataTests {
 
   @Test func testFormDataOptimizationWithMixedContent() throws {
     // Test optimization with mixed content types
-    let formData = FormData()
+    var formData = FormData()
 
     // Add some small parts
     formData.append("name", "John Doe")
@@ -833,7 +809,7 @@ struct FormDataTests {
 
   @Test func testFormDataOptimizationThresholdEdgeCase() throws {
     // Test exactly at the threshold boundary
-    let formData = FormData()
+    var formData = FormData()
 
     // Create data that's exactly at the threshold (10MB)
     let thresholdData = Data(repeating: 0x42, count: 10_000_000)
@@ -861,7 +837,7 @@ struct FormDataTests {
       numbers: Array(1...1000)  // Large array
     )
 
-    let formData = FormData()
+    var formData = FormData()
 
     // Add complex data
     formData.append("complex", complexData)
@@ -885,7 +861,7 @@ struct FormDataTests {
 
   @Test func testFormDataOptimizationMemoryEfficiency() throws {
     // Test that the optimization actually improves memory efficiency
-    let formData = FormData()
+    var formData = FormData()
 
     // Create multiple large parts to stress test memory usage
     for i in 0..<5 {
@@ -928,7 +904,7 @@ struct FormDataTests {
       params.append("key\(i)", value: "value\(i)")
     }
 
-    let formData = FormData()
+    var formData = FormData()
     formData.append("params", params)
 
     // Add large data to trigger optimization
@@ -951,7 +927,7 @@ struct FormDataTests {
 
   @Test func testFormDataOptimizationErrorHandling() throws {
     // Test that optimization doesn't interfere with error handling
-    let formData = FormData()
+    var formData = FormData()
 
     // Add an invalid URL that will cause an error
     let invalidURL = URL(string: "https://example.com/file.txt")!
@@ -987,7 +963,7 @@ struct FormDataTests {
   @Test func testFormDataOptimizationBoundaryConsistency() throws {
     // Test that optimization preserves boundary consistency
     let customBoundary = "custom-boundary-123"
-    let formData = FormData(boundary: customBoundary)
+    var formData = FormData(boundary: customBoundary)
 
     let largeData = Data(repeating: 0x42, count: 11_000_000)  // 11MB
     formData.append("large", largeData)
@@ -1014,7 +990,7 @@ struct FormDataTests {
 
   @Test func testFormDataOptimizationPerformance() throws {
     // Test performance characteristics of the optimization
-    let formData = FormData()
+    var formData = FormData()
 
     // Create a very large FormData to test performance
     let largeData = Data(repeating: 0x42, count: 50_000_000)  // 50MB
@@ -1027,7 +1003,7 @@ struct FormDataTests {
     let startTime = CFAbsoluteTimeGetCurrent()
 
     let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent(
-      "performance-test.txt")
+      "\(UUID().uuidString)-performance-test.txt")
     defer { try? FileManager.default.removeItem(at: outputURL) }
 
     try formData.writeEncodedData(to: outputURL)

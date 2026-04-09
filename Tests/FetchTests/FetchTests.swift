@@ -87,7 +87,7 @@ struct FetchTests {
   }
 
   @Test func requestWithFormData() async throws {
-    let formData = FormData()
+    var formData = FormData()
     formData.append("username", "john_doe")
     // formData.append("avatar", avatarURL)
     // formData.append(
@@ -123,7 +123,7 @@ struct FetchTests {
 
   @Test func testFetchWithLargeFormDataOptimization() async throws {
     // Test that large FormData triggers optimization
-    let formData = FormData()
+    var formData = FormData()
     let largeData = Data(repeating: 0x42, count: 11_000_000)  // 11MB, exceeds 10MB threshold
     formData.append("large", largeData)
 
@@ -134,7 +134,7 @@ struct FetchTests {
 
   @Test func testFetchWithSmallFormDataNoOptimization() async throws {
     // Test that small FormData doesn't trigger optimization
-    let formData = FormData()
+    var formData = FormData()
     let smallData = Data(repeating: 0x42, count: 1_000_000)  // 1MB, below 10MB threshold
     formData.append("small", smallData)
 

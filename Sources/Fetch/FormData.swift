@@ -25,22 +25,20 @@ import Foundation
 /// let options = FetchOptions(method: .post, body: formData)
 /// let response = try await fetch("https://api.example.com/upload", options: options)
 /// ```
-public final class FormData: Sendable {
+public struct FormData: Sendable {
 
   // MARK: - Properties
 
   /// The boundary string used to separate form parts
   private let boundary: String
   /// Internal storage for all form parts and error state
-  internal let mutableState = Mutex(MutablesState())
+  // internal let mutableState = Mutex(MutablesState())
 
-  /// Encapsulates the mutable state of FormData including body parts and error handling
-  struct MutablesState {
-    /// Collection of all form data parts
-    var bodyParts: [BodyPart] = []
-    /// Captured error from append operations, thrown during encode()
-    var bodyPartError: (any Error)?
-  }
+  /// Collection of all form data parts
+  internal var bodyParts: [BodyPart] = []
+
+  /// Captured error from append operations, thrown during encode()
+  private var bodyPartError: (any Error)?
 
   // MARK: - Initialization
 
@@ -68,7 +66,7 @@ public final class FormData: Sendable {
 
   /// The total content length of the form data, in bytes.
   public var contentLength: UInt64 {
-    mutableState.withLock { $0.bodyParts.reduce(0) { $0 + $1.bodyContentLength } }
+    bodyParts.reduce(0) { $0 + $1.bodyContentLength }
   }
 
   /// Adds a new part to the multipart form data.
@@ -116,12 +114,13 @@ public final class FormData: Sendable {
   ///   // Handle any errors from append operations
   /// }
   /// ```
-  public func append(
+  @discardableResult
+  public mutating func append(
     _ name: String,
     _ value: Any,
     filename: String? = nil,
     contentType: String? = nil
-  ) {
+  ) -> Self {
     do {
       let processedValue = try ValueProcessor.process(value)
       let finalFilename = filename ?? processedValue.filename
@@ -141,10 +140,11 @@ public final class FormData: Sendable {
         bodyContentLength: processedValue.contentLength
       )
 
-      mutableState.withLock { $0.bodyParts.append(bodyPart) }
+      bodyParts.append(bodyPart)
     } catch {
-      mutableState.withLock { $0.bodyPartError = error }
+      bodyPartError = error
     }
+    return self
   }
 
   /// Encodes the multipart form data into a single Data object.
@@ -169,22 +169,25 @@ public final class FormData: Sendable {
   ///   // Handle any errors from append operations
   /// }
   /// ```
-  public func encode() throws -> Data {
+  public consuming func encode() throws -> Data {
     var encoded = Data()
 
-    try mutableState.withLock { state in
-      if let error = state.bodyPartError {
-        throw error
-      }
+    if let error = bodyPartError {
+      throw error
+    }
 
-      let parts = state.bodyParts
-      parts.first?.hasInitialBoundary = true
-      parts.last?.hasFinalBoundary = true
+    var bodyParts = bodyParts
 
-      for bodyPart in parts {
-        let encodedData = try encode(bodyPart)
-        encoded.append(encodedData)
-      }
+    if bodyParts.indices.contains(bodyParts.startIndex) {
+      bodyParts[bodyParts.startIndex].hasInitialBoundary = true
+    }
+    if bodyParts.indices.contains(bodyParts.endIndex - 1) {
+      bodyParts[bodyParts.endIndex - 1].hasFinalBoundary = true
+    }
+
+    for bodyPart in bodyParts {
+      let encodedData = try encode(bodyPart)
+      encoded.append(encodedData)
     }
 
     return encoded
@@ -196,31 +199,34 @@ public final class FormData: Sendable {
   /// this approach is very memory efficient and should be used for large body part data.
   ///
   /// - Parameter fileURL: File `URL` to which to write the form data.
-  public func writeEncodedData(to fileURL: URL) throws {
-    try mutableState.withLock {
-      if let error = $0.bodyPartError {
-        throw error
-      }
+  public consuming func writeEncodedData(to fileURL: URL) throws {
+    if let error = bodyPartError {
+      throw error
+    }
 
-      if FileManager.default.fileExists(atPath: fileURL.path) {
-        throw FormDataError("File already exists: \(fileURL)")
-      } else if !fileURL.isFileURL {
-        throw FormDataError("Invalid file URL: \(fileURL)")
-      }
+    if FileManager.default.fileExists(atPath: fileURL.path) {
+      throw FormDataError("File already exists: \(fileURL)")
+    } else if !fileURL.isFileURL {
+      throw FormDataError("Invalid file URL: \(fileURL)")
+    }
 
-      guard let outputStream = OutputStream(url: fileURL, append: false) else {
-        throw FormDataError("Failed to create output stream: \(fileURL)")
-      }
+    guard let outputStream = OutputStream(url: fileURL, append: false) else {
+      throw FormDataError("Failed to create output stream: \(fileURL)")
+    }
 
-      outputStream.open()
-      defer { outputStream.close() }
+    outputStream.open()
+    defer { outputStream.close() }
 
-      $0.bodyParts.first?.hasInitialBoundary = true
-      $0.bodyParts.last?.hasFinalBoundary = true
+    var bodyParts = bodyParts
+    if bodyParts.indices.contains(bodyParts.startIndex) {
+      bodyParts[bodyParts.startIndex].hasInitialBoundary = true
+    }
+    if bodyParts.indices.contains(bodyParts.endIndex - 1) {
+      bodyParts[bodyParts.endIndex - 1].hasFinalBoundary = true
+    }
 
-      for bodyPart in $0.bodyParts {
-        try write(bodyPart, to: outputStream)
-      }
+    for bodyPart in bodyParts {
+      try write(bodyPart, to: outputStream)
     }
   }
 
@@ -452,18 +458,18 @@ extension FormData {
 extension FormData {
   /// Represents a single part within the multipart form data.
   /// Each part consists of headers and a stream of the body content.
-  final class BodyPart {
+  struct BodyPart: Sendable {
     /// The headers for this part (Content-Disposition, Content-Type, etc.)
     let headers: HTTPHeaders
     /// The stream of the body content for this part
-    let bodyStream: InputStream
+    nonisolated(unsafe) let bodyStream: InputStream
     /// The length of the body content for this part
     let bodyContentLength: UInt64
 
     var hasInitialBoundary: Bool = false
     var hasFinalBoundary: Bool = false
 
-    init(headers: HTTPHeaders, bodyStream: InputStream, bodyContentLength: UInt64) {
+    init(headers: HTTPHeaders, bodyStream: sending InputStream, bodyContentLength: UInt64) {
       self.headers = headers
       self.bodyStream = bodyStream
       self.bodyContentLength = bodyContentLength
@@ -518,7 +524,7 @@ private enum ValueProcessor {
     let contentType: String?
   }
 
-  static func process(_ value: Any) throws -> ProcessedValue {
+  static func process(_ value: Any) throws -> sending ProcessedValue {
     switch value {
     case let data as Data:
       return ProcessedValue(
@@ -654,13 +660,13 @@ private class FormDataDecoder {
 
   func decode(from data: Data, contentType: String) throws -> FormData {
     let boundary = try extractBoundary(from: contentType)
-    let formData = FormData(boundary: boundary)
+    var formData = FormData(boundary: boundary)
 
     let parts = try parseParts(from: data, boundary: boundary)
 
     for part in parts {
       let bodyPart = try createBodyPart(from: part)
-      formData.mutableState.withLock { $0.bodyParts.append(bodyPart) }
+      formData.bodyParts.append(bodyPart)
     }
 
     return formData
